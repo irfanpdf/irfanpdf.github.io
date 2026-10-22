@@ -4,6 +4,7 @@
  * every local asset, plus external links (listed, not fetched).
  */
 const http = require("http");
+const https = require("https");
 const { URL } = require("url");
 
 const BASE = process.argv[2] || "http://127.0.0.1:8123";
@@ -19,7 +20,11 @@ const EXPECTED_ROUTES = [
 function fetchUrl(url, redirects = 0) {
   return new Promise((resolve) => {
     const u = new URL(url);
-    const req = http.request(
+    // pick the transport that matches the URL scheme: a plain-http request to
+    // an https-only host (GitHub Pages) gets a 301 to https, which this
+    // crawler would otherwise follow in a loop and report as failure
+    const mod = u.protocol === "https:" ? https : http;
+    const req = mod.request(
       { hostname: u.hostname, port: u.port, path: u.pathname + u.search, method: "GET", timeout: 15000 },
       (res) => {
         const chunks = [];

@@ -3,6 +3,7 @@ import "./globals.css";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { HashScroller } from "@/components/hash-scroller";
+import { ChatWidget } from "@/components/chat-widget";
 import { SITE } from "@/data/site";
 import { SITE_URL } from "@/data/env";
 
@@ -102,6 +103,7 @@ export default function RootLayout({
         <SiteHeader />
         <main id="main">{children}</main>
         <SiteFooter />
+        <ChatWidget />
       </body>
     </html>
   );

@@ -55,7 +55,9 @@ export type IconName =
   | "shield"
   | "cpu"
   | "globe"
-  | "terminal";
+  | "terminal"
+  | "chat"
+  | "x";
 
 const P: Record<IconName, string> = {
   eye: "M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z M12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z",
@@ -112,6 +114,9 @@ const P: Record<IconName, string> = {
   cpu: "M8 8h8v8H8V8Z M5 5h14v14H5V5Z M9.5 2v3 M14.5 2v3 M9.5 19v3 M14.5 19v3 M2 9.5h3 M2 14.5h3 M19 9.5h3 M19 14.5h3",
   globe: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z M3.2 9.5h17.6 M3.2 14.5h17.6 M12 3c-5 5.2-5 12.8 0 18 M12 3c5 5.2 5 12.8 0 18",
   terminal: "M4 5h16v14H4V5Z M7.5 9.5l3 2.5-3 2.5 M12.5 15h4",
+  chat:
+    "M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H9.5L4 20V5.5Z M8 9.5h.01 M12 9.5h.01",
+  x: "M6 6l12 12 M18 6 6 18",
 };
 
 export function Icon({

@@ -31,10 +31,11 @@ script, JSON-LD `SoftwareApplication`, skip link, header, `<main>`, footer.
 | `site-footer.tsx` | server | `logo`, `data/site` | 4-column footer incl. verification line (gate numbers + date) |
 | `logo.tsx` | server | `next/link` | Inline SVG product mark (icon geometry, original code) |
 | `theme-toggle.tsx` | client | — | Light/dark, persists `ipdf-site-theme`, `aria-label` reflects next state |
-| `icons.tsx` | server | — | 55 original stroke icons + `Icon` / `IconChip` (no CDN) |
+| `icons.tsx` | server | — | 56 original stroke icons + `Icon` / `IconChip` (no CDN) |
 | `ui.tsx` | server | `icons` | Primitives: `PageHero`, `Section`, `Badge`, `CtaRow`, `CheckList`, `Stat`, `ToolCard`, `Note` |
 | `compare-table.tsx` | **client** | `data/comparison`, `icons` | Category filter chips + “only differences” toggle (`aria-pressed`, `aria-live` count), status pills, source markers → citation anchors, legend |
 | `download-cards.tsx` | **client** | `data/downloads`, `ui`, `icons` | Per-artifact cards: metadata table, SHA-256 with copy button (`aria-live`), link state: real URL / not-configured / not-verified |
+| `chat-widget.tsx` | **client** | `lib/assistant`, `icons` | Floating site assistant (mounted once in `app/layout.tsx`, on every page): matches the visitor's question against the site's own documentation and replies in a `role="dialog"` panel — **no API key, no backend, no network calls**; honest fallback + doc links; Escape closes and returns focus to the toggle |
 
 ## Data layer (`src/data/`) — single source of truth for content
 
@@ -65,5 +66,8 @@ re-verification touches one file, not fifteen.
 ## Build/test hooks
 
 * `npm run build` → `out/` (static), `npm run typecheck` → `tsc --noEmit`.
+* `npm run test:assistant` → `scripts/test-assistant.mjs` (zero-dependency unit
+  tests for `lib/assistant.ts`: question→answer routing, honest fallback, chip
+  routing, reply hygiene, and that every assistant link resolves to a served route).
 * Website test checklist lives in `docs/TESTING-REPORT.md`.
 * No environment dependencies beyond the two optional public URL variables.

@@ -7,8 +7,8 @@
     "dev": "next dev",
     "build": "next build && node scripts/flatten-rsc.mjs",
     "start": "next start",
-    "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:assistant": "node scripts/test-assistant.mjs"
   },
   "dependencies": {
     "next": "16.4.2",

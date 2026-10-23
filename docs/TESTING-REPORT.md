@@ -1,7 +1,7 @@
 # TESTING REPORT — Irfan PDF official website
 
 **Subject:** `irfan-pdf-website` (Next.js 16.4.2 static export) and the Irfan PDF 1.7.0 desktop application
-**Website tests executed:** 2026-10-16 → 2026-10-17, final pass 2026-10-22 (local machine, static export served over HTTP)
+**Website tests executed:** 2026-10-16 → 2026-10-17, final pass 2026-10-22; site assistant added and tested 2026-10-23 (local machine, static export served over HTTP)
 **Application verification executed:** 2026-10-16
 **Product verification date used everywhere on the site:** 2026-10-16
 **Method:** every row below was executed and observed; the evidence column names the tool and the observed
@@ -274,3 +274,30 @@ Executed after the corrections listed in `docs/VERIFICATION-REPORT.md` (§ re-ve
 | D10 | Encoding integrity | **PASS** | 0 replacement characters in all `docs/*.md` and `src/**` files after the corrections were written |
 
 **Integrity pass result: PASS** — 10 checks, 0 failures, 3 content corrections applied and verified on the rendered pages.
+
+---
+
+## 14. Site assistant (floating chat widget) — added and tested 2026-10-23
+
+The site gained a floating assistant (bottom-right) that answers questions about Irfan PDF from the site's own
+documentation. It is a client-side keyword/retrieval matcher (`src/lib/assistant.ts`), **not** a language model —
+the widget says so when asked — with no API key, no backend and no network calls of any kind.
+
+| # | Check | Result | Evidence |
+| --- | --- | --- | --- |
+| A1 | Unit tests: question→answer routing, honest fallback, chip routing, reply hygiene, link validity, unique ids | **PASS** | `npm run test:assistant` (scripts/test-assistant.mjs) = **206 checks, 0 failures**; the first run found **3 real routing bugs** (SmartScreen→download, "make a docx"→features, "are you a real ai"→fallback), fixed in `src/lib/assistant.ts` before the 206/0 re-run. Every entry link is asserted to be one of the site's 17 served routes |
+| A2 | Type safety | **PASS** | `npx tsc --noEmit` exit 0 after the change set |
+| A3 | Static export | **PASS** | `npm run build` exit 0; toggle button present in `out/index.html` (`aria-controls="site-assistant-panel"`); the dialog itself is **not** pre-rendered — it mounts only when opened |
+| A4 | Engine actually shipped in the JS | **PASS** | shipped chunks contain the intro, the disclaimer, the fallback text and knowledge strings (e.g. "English PP-OCRv5 model") |
+| A5 | No new external resources | **PASS** | 0 added external `src`/`href` in the built home page; `out/` = 4.83 MB |
+| A6 | Crawl after adding the widget | **PASS** | local `node crawl.js` → OVERALL PASS (routes, 0 broken internal links, 313/313 assets, 6/6 content checks) |
+| A7 | Browser: open/close + a11y basics | **PASS** | toggle `aria-expanded` flips; panel is `role="dialog"` with label; Escape closes it; focus returns to the toggle button |
+| A8 | Browser: typed question → grounded answer | **PASS** | "does it work offline" → correct offline answer + FAQ link; input cleared after send; send disabled while the input is empty |
+| A9 | Browser: honest fallback | **PASS** | "what is the capital of france" → "I don't have an answer for that…" + Documentation-home link; suggestion chips reappear after a fallback |
+| A10 | Browser: suggestion chip click | **PASS** | "Is it free?" chip → correct free/pricing answer + Terms-of-use link; chips hide after the first question |
+| A11 | Browser: reply link + SPA persistence | **PASS** | clicking a reply link closes the panel and navigates (observed landing on `/docs/installation/`); the widget persists across client-side navigation (it lives in the root layout) |
+| A12 | Dark theme | **PASS** | forced dark: panel `rgb(20,23,34)`, header `rgb(204,0,0)`, bot bubbles `rgb(28,31,43)`, input/disclaimer `rgb(16,19,32)`, near-white text — measured with computed styles, matches the authored dark tokens |
+| A13 | CI unaffected | **PASS** | the deploy workflow runs only `npm ci` + `npm run build` (the never-functional `next lint` script, removed in Next 16, was deleted from `package.json`) |
+| L1 | Not tested | — | full keyboard-only traversal of the panel and screen-reader announcements were **not** audited; the Lighthouse/axe runs in §5 predate the widget (it opens client-side, so static audits don't see it). Escape handling and focus return are verified (A7); a full a11y pass on the open widget remains open work |
+
+**Site assistant result: PASS** — 14 executed checks (206 unit checks), 0 failures, 1 documented limitation (L1).

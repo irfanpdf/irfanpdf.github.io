@@ -81,10 +81,11 @@ Notes:
 ## Testing this site
 
 ```powershell
-npm run typecheck       # tsc --noEmit
-npm run build           # static export + payload adapter
-node test-server.js     # serves out\ on http://127.0.0.1:8123
-node crawl.js           # routes, internal links, assets, 404, content checks
+npm run typecheck        # tsc --noEmit
+npm run test:assistant   # site-assistant routing/fallback/link unit tests (206 checks)
+npm run build            # static export + payload adapter
+node test-server.js      # serves out\ on http://127.0.0.1:8123
+node crawl.js            # routes, internal links, assets, 404, content checks
 ```
 
 `crawl.js` exits non-zero on any failure, so it also works as a post-deploy smoke
@@ -108,13 +109,17 @@ irfan-pdf-website/
 │  │  ├─ sitemap.ts robots.ts
 │  │  └─ globals.css        # Tailwind v4 + design tokens + prose styles
 │  ├─ components/           # header, footer, logo, icons, ui primitives,
-│  │                        # compare-table (client), download-cards (client)
+│  │                        # compare-table (client), download-cards (client),
+│  │                        # chat-widget (client floating assistant)
+│  ├─ lib/
+│  │  └─ assistant.ts       # assistant knowledge base + matcher (pure, testable)
 │  └─ data/                 # verified content: site, features, downloads,
 │                            # comparison (with citations), roadmap, screenshots, env
 ├─ public/
 │  ├─ favicon.ico           # the real application icon (IrfanPDF.ico)
 │  └─ screenshots/          # real captures from the running app (2026-10-16)
 ├─ scripts/flatten-rsc.mjs  # post-build fix for next.js#85374 (Windows export)
+├─ scripts/test-assistant.mjs # unit tests for the site assistant
 ├─ test-server.js           # zero-dependency static server used by testing
 ├─ crawl.js                 # route/link/asset crawler (exits non-zero on failure)
 ├─ docs/                    # verification, testing, risk, roadmap, assets reports

@@ -5,7 +5,7 @@ application. Built with **Next.js 16 (App Router) + TypeScript + Tailwind CSS v4
 exported fully statically (`output: "export"`) so it can be hosted anywhere — or
 opened from a folder.
 
-The application itself lives at `C:\Users\<local-user>\Desktop\docuforge` and is
+The application itself lives in a sibling folder (`..\docuforge`) and is
 **not modified** by this project. Every product claim on the site is grounded in
 the project's own code, changelog and test suite — see
 [`docs/VERIFICATION-REPORT.md`](docs/VERIFICATION-REPORT.md).
@@ -15,7 +15,7 @@ the project's own code, changelog and test suite — see
 ## Quick start
 
 ```powershell
-cd C:\Users\<local-user>\Desktop\irfan-pdf-website
+cd <checkout-path>\irfan-pdf-website
 npm install          # once
 npm run dev          # development server → http://localhost:3000
 npm run build        # static export → out\

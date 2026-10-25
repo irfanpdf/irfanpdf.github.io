@@ -36,7 +36,7 @@ Create both empty (no README, no .gitignore) so the first push stays clean.
 ### 2. Push this project's source
 
 ```powershell
-cd C:\Users\<local-user>\Desktop\irfan-pdf-website
+cd <checkout-path>\irfan-pdf-website
 git init -b main
 git add .
 git commit -m "IRFAN PDF website"
@@ -71,7 +71,7 @@ In `irfanpdf.github.io`:
 ### 4. Upload the packages
 
 1. Create a tag/release **`v1.7.0`** in `irfanpdf-releases` (Releases → Draft a new release).
-2. Attach the three artifacts from `C:\Users\<local-user>\Desktop\docuforge\dist\`:
+2. Attach the three artifacts from the application's `dist` folder (`<path-to>\docuforge\dist\`):
 
    | File | Size | SHA-256 (first 8) |
    |---|---|---|

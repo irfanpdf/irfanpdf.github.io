@@ -1,7 +1,7 @@
 # IRFAN PDF — STEP 1: PROJECT INSPECTION & VERIFICATION REPORT
 
 **VerDate:** 2026-10-16
-**Subject:** `C:\Users\<local-user>\Desktop\docuforge` (application source, build outputs, documentation)
+**Subject:** the `docuforge` application checkout (application source, build outputs, documentation)
 **Method:** every claim below was checked against an actual project file or an executed test run.
 Anything not confirmed is marked **Not Verified** and must not be advertised.
 

@@ -88,11 +88,15 @@ async function checkRoute(pathname, { expectStatus, expectStrictCsp }) {
     say(/object-src 'none'/.test(csp), `${pathname} object-src 'none'`);
   } else if (expectStrictCsp === false) {
     say(Boolean(csp), `${pathname} catch-all CSP`, csp ? `${csp.length} chars` : "MISSING");
+    // Scope 'unsafe-inline' to the SCRIPT directive only: style-src-attr
+    // 'unsafe-inline' is by design and present in every tier, so a plain
+    // /unsafe-inline/ test would always match and mask the real mode.
     const hashes = (csp.match(/sha256-/g) || []).length;
-    const strong = hashes > 0 && !/unsafe-inline/.test(csp);
-    const fallback = hashes === 0 && /unsafe-inline/.test(csp);
+    const scriptAllowsInline = /(?:^|[;,])\s*script-src\s[^;,]*'unsafe-inline'/.test(csp);
+    const strong = hashes > 0 && !scriptAllowsInline;
+    const fallback = hashes === 0 && scriptAllowsInline;
     if (strong) {
-      say(true, `${pathname} catch-all is hash-constrained (strong)`, `${hashes} hash(es), no unsafe-inline`);
+      say(true, `${pathname} catch-all is hash-constrained (strong)`, `${hashes} hash(es), no script-src unsafe-inline`);
     } else if (fallback) {
       say(
         ALLOW_FALLBACK,

@@ -104,6 +104,13 @@ exceeded, and the comma-join intersection it relies on was proven in a real brow
 - `node crawl.js https://irfanpdf.pages.dev` → **PASS**; canonical/OG/sitemap and the
   three download links all picked up the build-time env vars.
 
+**Same-day follow-up (2026-10-25, `3f204c5`):** the catch-all tier's residual gap was
+closed in-repo — it now carries the **union of all hashes** instead of `unsafe-inline`
+when that fits the 2,000-char line, and the deployed Linux build fits (live measured
+1,463 chars / 21 hashes; checker PASS without flags; the live 404 page's inline scripts
+run under it). Windows local builds still fall back loudly by design. Full measurements:
+[`SECURITY-HARDENING.md`](SECURITY-HARDENING.md) §6 item 9.
+
 **Residual:** `irfanpdf.github.io` keeps serving the old header-less copy under the "run
 both" decision (so old links never break) — anyone on that URL still gets no CSP, and the
 `<meta>` fallback remains deliberately not added. **One SEO side-effect measured after the

@@ -26,21 +26,33 @@ written violated the second:
 | Single `/*` CSP with the union of all 40 hashes | **2,516** | line over the limit → rule dropped → **site ships with no CSP** |
 | Hashes that fit in one line / hashes needed | **29** / **40** | can't be made to fit |
 
-`scripts/gen-headers.mjs` was rewritten to emit **two tiers** — a catch-all rule with a
-fallback CSP (345-char value) plus one strict per-page rule with that page's own 4–9
-hashes (567–842 chars). A real page matches both and browsers **intersect** the two
+`scripts/gen-headers.mjs` was rewritten to emit **two tiers** — a catch-all rule plus one
+strict per-page rule with that page's own 4–9 hashes (567–842 chars). A real page matches
+both and browsers **intersect** the two
 policies, so the effective script rule stays hash-only. This was proven in a real browser
 before the change (a single header value containing `policyA, policyB` ran the hashed
 control script and blocked the unhashed one — identical to two header fields), and
 `scripts/serve-headers.mjs` reproduces Cloudflare's comma-join locally so what is tested
 is what would ship.
 
-Current build output, from `npm run build`:
+**Same-day update (2026-10-25, commit `3f204c5`):** the catch-all's `unsafe-inline` was
+replaced by the **union of all hashes** wherever that fits the 2,000-char line — on
+Cloudflare's Linux builder it **does** (live-measured: 1,463-char line, 21 hashes), which
+closes residual §6.9 (the 404 page is hash-constrained too). On Windows builds the union
+is still 40 hashes = 2,516 chars, so they keep the fallback below, with a loud build
+warning. See `SECURITY-HARDENING.md` §6 item 9.
+
+Current build output, from `npm run build` (a **Windows** build — see above):
 
 ```
 gen-headers: 58 rules (1 catch-all + 57 strict per-page) / limit 100; longest line 842 chars / limit 2000
-gen-headers: catch-all CSP = 345 chars (fallback); strict CSP per page = 572–842 chars
+gen-headers: catch-all CSP = 345 chars (FALLBACK: 'unsafe-inline'); strict CSP per page = 572–842 chars
+gen-headers: WARNING — the hash union needs a 2516-char catch-all line, over Cloudflare's 2000-char limit, ...
 ```
+
+On the Linux build Cloudflare runs, the same command prints
+`catch-all CSP = 1463 chars (strong: 21 hashes, no unsafe-inline)` instead — the value
+length matches the live header exactly (1,463), measured from the response, not assumed.
 
 The generator now **fails the build** if any line exceeds 2,000 chars or the rule count
 exceeds 100, so a future growth in page count cannot silently produce a file a real host
@@ -157,10 +169,11 @@ being the only origin.
 
 ## 3. What stays open after this
 
-- **Residual §6.9** of `SECURITY-HARDENING.md`: at *unmatched* URLs only the fallback
-  tier applies, so the 404 page's inline scripts are not hash-constrained there. Closing
-  it needs either a **Cloudflare Worker/Snippet** to attach the header (no 2,000-char line
-  limit) or a custom domain. Neither is done.
+- **Residual §6.9** of `SECURITY-HARDENING.md` — **CLOSED 2026-10-25, in-repo, no
+  Worker/domain needed.** The catch-all CSP now carries the **union of all hashes**
+  instead of `unsafe-inline` whenever that fits the 2,000-char line, and the deployed
+  Linux build fits (live measured: 1,463-char catch-all, 21 hashes, checker PASS
+  without flags). A custom domain is therefore optional for its own sake only (below).
 - **Custom domain (optional):** ~$7–15/yr, then the site gets a permanent name of its own
   and `includeSubDomains` HSTS becomes meaningful.
 - **S3** (`security.txt`) — **DONE 2026-10-25** (GitHub private vulnerability reporting as

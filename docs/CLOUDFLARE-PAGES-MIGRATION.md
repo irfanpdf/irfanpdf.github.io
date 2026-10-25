@@ -104,15 +104,25 @@ links never break); Cloudflare serves `irfanpdf.pages.dev` with the headers, and
 consolidate there. Verified after the cutover: `irfanpdf.github.io` → 200,
 `Server: GitHub.com`, no CSP.
 
-**Measured side-effect, not yet fixed:** the GitHub Pages build has its own
-`SITE_URL` repository variable (still `https://irfanpdf.github.io`), so **each host
-declares itself canonical** — `github.io` → `github.io`, `pages.dev` → `pages.dev`.
-Engines therefore see two self-canonical pages rather than consolidating on the new URL.
-To make "run both" do what it promises, change the GitHub Actions repository variable
-`SITE_URL` to `https://irfanpdf.pages.dev` (Settings → Secrets and variables → Actions →
-Variables) and let the workflow rebuild — the old host's canonical then points at the new
-one. Deliberately **not** done here: it changes what the other host publishes, so it is
-yours to approve.
+**Side-effect found by measuring, then FIXED the same day (2026-10-25):** the GitHub
+Pages build has its own `SITE_URL` repository variable, so initially **each host declared
+itself canonical** — `github.io` → `github.io`, `pages.dev` → `pages.dev` — and engines
+would have seen two competing self-canonical pages instead of consolidating. Fix applied
+with your approval: the GitHub Actions repository variable `SITE_URL` was changed to
+`https://irfanpdf.pages.dev` (Settings → Secrets and variables → Actions → Variables) and
+run #6 re-run (the first attempt had started before the variable change). Verified after
+the rebuild on **both** hosts:
+
+| | `irfanpdf.github.io` (GitHub Pages) | `irfanpdf.pages.dev` (Cloudflare) |
+|---|---|---|
+| canonical | `https://irfanpdf.pages.dev/` | `https://irfanpdf.pages.dev/` |
+| `og:url` | `https://irfanpdf.pages.dev/` | `https://irfanpdf.pages.dev/` |
+| deep page (`/features/`) | `https://irfanpdf.pages.dev/features/` | same |
+| sitemap `<loc>` | 17 entries, all `pages.dev` | 17 entries, all `pages.dev` |
+| CSP headers | absent (GitHub Pages limitation) | present |
+
+Only the *URLs* the old host advertises changed — it still serves the old header-less
+content at the old address, so old links keep working.
 
 The alternatives, for the record:
 
@@ -156,9 +166,9 @@ being the only origin.
 - **S3** (`security.txt`) still needs a disclosure contact — unrelated to hosting.
 - **`irfanpdf.github.io`'s fate** (§2.4): "run both" is in force; disabling GitHub Pages
   remains an SEO decision.
-- **Conflicting canonicals** (§2.4): both hosts currently claim themselves canonical.
-  Fix = change the GitHub Actions `SITE_URL` variable to `https://irfanpdf.pages.dev`
-  and let the workflow rebuild. Not done — it changes what the old host publishes.
+- **Conflicting canonicals** (§2.4): **fixed 2026-10-25** — `SITE_URL` variable changed to
+  `https://irfanpdf.pages.dev`, workflow re-run, both hosts verified pointing canonical +
+  `og:url` + sitemap at the new URL. Nothing further to do here.
 - **Maintenance:** Cloudflare rebuilds on every push to `main`, so `gen-headers` re-runs
   there each time — no manual hash work. The `NEXT_PUBLIC_*` env vars are Cloudflare's own
   copy; if the GitHub Actions `SITE_URL`/`DOWNLOAD_BASE_URL` variables ever change, change
@@ -179,6 +189,7 @@ being the only origin.
 | Headers on `/` | `Server: cloudflare` + `CF-RAY`; CSP (both tiers, comma-joined), `nosniff`, `DENY`, `Referrer-Policy`, `Permissions-Policy`, COOP, CORP, `X-Permitted-Cross-Domain-Policies`, HSTS |
 | Env vars | canonical/`og:url` = `pages.dev`, sitemap 2,929 B, three working download links |
 | `irfanpdf.github.io` | still 200 / `Server: GitHub.com` / no CSP ("run both") |
+| Canonical unification (later the same day, approved) | Actions `SITE_URL` variable changed to `https://irfanpdf.pages.dev` + run #6 re-run → **both** hosts now serve canonical/`og:url` = `pages.dev`, deep-page canonicals and the 17-entry sitemap included (evidence table in §2.4) |
 
 **Measured quirk, recorded rather than smoothed over:** the Cloudflare (Linux) build
 hashed **80 inline scripts → 21 hashes** (longest line 572) where the local (Windows)

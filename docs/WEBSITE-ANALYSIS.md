@@ -24,7 +24,7 @@ remediation status noted in each section. Nothing was deployed; nothing was push
 | Live download links | ✅ resolve **200** with exactly the published byte sizes |
 | Tracking / cookies / third-party requests | ✅ **none** — no cookies on 3 probed routes, 0 external subresources, 0 mixed content |
 | Source/config exposure on the host | ✅ `/.git`, `/package.json`, `/.env`, `/README.md`, `/docs/*` all **404** |
-| SEO metadata | ⚠️ canonical, 9 Open Graph tags, `index,follow`, sitemap with 17 URLs, robots points at it — **but with both hosts live each declares *itself* canonical** (`github.io` → `github.io`, `pages.dev` → `pages.dev`), so engines see two competing self-canonical pages instead of consolidating on the new URL; see **S1 residual** |
+| SEO metadata | ✅ canonical, 9 Open Graph tags, `index,follow`, sitemap with 17 URLs, robots points at it — and after the 2026-10-25 canonical fix **both hosts advertise the same canonical** (`pages.dev`), so engines consolidate on the new URL instead of seeing duplicates (earlier that day each host self-canonicalised; found by measurement, fixed via the Actions `SITE_URL` variable — evidence in `CLOUDFLARE-PAGES-MIGRATION.md` §2.4) |
 | 404 behaviour | ✅ unknown route returns **404** |
 | Responsible-disclosure channel | ❌ **none** (`/.well-known/security.txt` → 404) — **S3** |
 
@@ -107,12 +107,14 @@ exceeded, and the comma-join intersection it relies on was proven in a real brow
 **Residual:** `irfanpdf.github.io` keeps serving the old header-less copy under the "run
 both" decision (so old links never break) — anyone on that URL still gets no CSP, and the
 `<meta>` fallback remains deliberately not added. **One SEO side-effect measured after the
-cutover:** each host now declares *itself* canonical (`github.io` → `github.io`,
-`pages.dev` → `pages.dev`), so search engines are not consolidating onto the new URL as
-the "run both" plan assumed. Fixing it means changing the GitHub Actions `SITE_URL`
-repository variable to `https://irfanpdf.pages.dev` (so the old host points its canonical
-at the new one) — a one-line dashboard change that has **not** been made. Details and the
-measured Windows/Linux build difference: `SECURITY-HARDENING.md` §5.5, §6.1.
+cutover, then fixed the same day:** each host had declared *itself* canonical
+(`github.io` → `github.io`, `pages.dev` → `pages.dev`), so engines were not consolidating
+onto the new URL as the "run both" plan assumed. Fixed with approval by changing the
+GitHub Actions `SITE_URL` variable to `https://irfanpdf.pages.dev` and re-running run #6;
+verified afterwards that **both** hosts now serve canonical + `og:url` = `pages.dev`
+(including deep-page canonicals and the 17-entry sitemap). Details in
+`CLOUDFLARE-PAGES-MIGRATION.md` §2.4; the measured Windows/Linux build difference:
+`SECURITY-HARDENING.md` §5.5, §6.1.
 
 ### S2 — LOW: `Access-Control-Allow-Origin: *` on every response
 
@@ -234,7 +236,9 @@ served.
 
 ### 3.6 SEO / structure
 
-- `<link rel="canonical" href="https://irfanpdf.github.io/">` ✅
+- `<link rel="canonical" href="https://irfanpdf.pages.dev/">` ✅ *(measured when §3.6 was
+  written, this read `https://irfanpdf.github.io/`; after the Cloudflare Pages move and
+  the canonical fix of 2026-10-25 it reads `pages.dev` on both hosts — see S1)*
 - 9 Open Graph tags incl. `og:url` and `og:image` ✅
 - `<meta name="robots" content="index, follow">` ✅ (the 404 page stays `noindex`)
 - `robots.txt` → `User-Agent: * / Allow: /` + `Sitemap:` line ✅

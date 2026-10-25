@@ -61,7 +61,7 @@ In `irfanpdf.github.io`:
 
 | Name | Value |
 |---|---|
-| `SITE_URL` | `https://irfanpdf.github.io` |
+| `SITE_URL` | `https://irfanpdf.pages.dev` *(changed 2026-10-25 — the site's canonical host after the Cloudflare Pages move; was `https://irfanpdf.github.io`. Both hosts still serve, but both advertise `pages.dev` as canonical. See `CLOUDFLARE-PAGES-MIGRATION.md` §2.4.)* |
 | `DOWNLOAD_BASE_URL` | `https://github.com/irfanpdf/irfanpdf-releases/releases/download/v1.7.0/` |
 
 (The workflow passes them to the build as `NEXT_PUBLIC_SITE_URL` /
@@ -86,8 +86,11 @@ In `irfanpdf.github.io`:
 * `https://irfanpdf.github.io/` loads, all 17 routes reachable (run
   `node crawl.js https://irfanpdf.github.io` — it checks routes, internal links, local
   assets, the 404 status and the content checks, and prints OVERALL PASS/FAIL).
-* Every page's canonical points at `https://irfanpdf.github.io/...`.
-* `https://irfanpdf.github.io/sitemap.xml` lists 17 URLs; `robots.txt` has the Sitemap line.
+* Every page's canonical points at `https://irfanpdf.pages.dev/...` (the canonical host
+  since the Cloudflare Pages move — this holds on **both** hosts, including the
+  `irfanpdf.github.io` copy).
+* `https://irfanpdf.github.io/sitemap.xml` lists 17 URLs, all under `pages.dev`;
+  `robots.txt` has the Sitemap line.
 * The three Download Center buttons resolve (HTTP 200 after redirects) and the page shows
   the SHA-256 checksums.
 

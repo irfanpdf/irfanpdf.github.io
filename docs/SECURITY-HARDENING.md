@@ -321,11 +321,12 @@ the project settings, and the rollback, is in
 4. **GitHub Pages workflow** (`.github/workflows/deploy.yml`) stays untouched; under the
    "run both" decision it keeps serving the header-less version at the old URL, so old
    links never break (verified: `irfanpdf.github.io` → 200, `Server: GitHub.com`, no CSP).
-   The SEO consequences of running both remain the one decision this repo cannot make —
-   see the migration doc. **One measured wrinkle:** each host currently declares *itself*
-   canonical (the Actions build still has `SITE_URL = github.io`), so engines are not
-   consolidating on the new URL yet; the fix is a one-variable change in the Actions
-   settings, recorded as open in the migration doc §3.
+   The SEO wrinkle this produced — **each host initially declared *itself* canonical** —
+   was found by measurement and **fixed the same day**: the Actions `SITE_URL` variable
+   now holds `https://irfanpdf.pages.dev`, run #6 was re-run after the change, and both
+   hosts were verified serving canonical + `og:url` + sitemap pointing at `pages.dev`
+   (evidence table in the migration doc §2.4). What remains yours is the larger call in
+   §2.4 of that doc: whether `irfanpdf.github.io` should eventually retire entirely.
 5. **Verification after cutover** (all run against the live URL, 2026-10-25 — §5.5):
    ```powershell
    node scripts/check-live-headers.mjs https://irfanpdf.pages.dev   # ended OVERALL: PASS

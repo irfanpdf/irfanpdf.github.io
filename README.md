@@ -77,14 +77,24 @@ Notes:
    so every `<Link>` prefetch 404s. The script copies each payload to the flat
    name the client asks for. It is harmless on Linux/macOS builds and can be
    dropped once vercel/next.js#99058 ships.
+5. **Security headers:** the build also runs `node scripts/gen-headers.mjs`, which
+   hashes every executable inline script in the export and writes `out/_headers`
+   (Content-Security-Policy + nosniff, DENY, Referrer-Policy, Permissions-Policy,
+   COOP/CORP, HSTS) for hosts that support them — Cloudflare Pages and Netlify.
+   **GitHub Pages ignores `_headers`**, so the live site does not receive these
+   headers yet; see [`docs/SECURITY-HARDENING.md`](docs/SECURITY-HARDENING.md) for
+   the measured live headers, the browser verification (0 CSP violations across 18
+   routes) and the host-migration steps. The generator fails the build rather than
+   emit a policy it cannot derive.
 
 ## Testing this site
 
 ```powershell
 npm run typecheck        # tsc --noEmit
 npm run test:assistant   # site-assistant routing/fallback/link unit tests (206 checks)
-npm run build            # static export + payload adapter
+npm run build            # static export + payload adapter + out/_headers generator
 node test-server.js      # serves out\ on http://127.0.0.1:8123
+node scripts/serve-headers.mjs   # same, but WITH the security headers (:8124)
 node crawl.js            # routes, internal links, assets, 404, content checks
 ```
 
@@ -119,6 +129,8 @@ irfan-pdf-website/
 │  ├─ favicon.ico           # the real application icon (IrfanPDF.ico)
 │  └─ screenshots/          # real captures from the running app (2026-10-16)
 ├─ scripts/flatten-rsc.mjs  # post-build fix for next.js#85374 (Windows export)
+├─ scripts/gen-headers.mjs   # builds out/_headers (CSP with script hashes, fail-closed)
+├─ scripts/serve-headers.mjs # local server that enforces out/_headers (browser testing)
 ├─ scripts/test-assistant.mjs # unit tests for the site assistant
 ├─ test-server.js           # zero-dependency static server used by testing
 ├─ crawl.js                 # route/link/asset crawler (exits non-zero on failure)

@@ -163,7 +163,9 @@ being the only origin.
   limit) or a custom domain. Neither is done.
 - **Custom domain (optional):** ~$7–15/yr, then the site gets a permanent name of its own
   and `includeSubDomains` HSTS becomes meaningful.
-- **S3** (`security.txt`) still needs a disclosure contact — unrelated to hosting.
+- **S3** (`security.txt`) — **added 2026-10-25** (GitHub private vulnerability reporting
+  as the contact); remaining step is the live-host 200 check after the next deploy — see
+  `WEBSITE-ANALYSIS.md` §2 S3.
 - **`irfanpdf.github.io`'s fate** (§2.4): "run both" is in force; disabling GitHub Pages
   remains an SEO decision.
 - **Conflicting canonicals** (§2.4): **fixed 2026-10-25** — `SITE_URL` variable changed to

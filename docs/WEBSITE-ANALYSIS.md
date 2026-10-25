@@ -18,7 +18,7 @@ remediation status noted in each section. Nothing was deployed; nothing was push
 |---|---|
 | Secrets / credentials in repo or history | ✅ **none found** (only empty `.env.example`, and only that file was ever added) |
 | Personal data in repo | ✅ **fixed forward 2026-10-25** — 29 username occurrences removed from the working tree; the pushed history still has them — see **P1** |
-| Dependency vulnerabilities (`npm audit`) | ✅ **0 vulnerabilities** (production *and* dev); `next` now at 16.4.3 — 4 packages still behind, see **D1** |
+| Dependency vulnerabilities (`npm audit`) | ✅ **0 vulnerabilities** (production *and* dev); `next` now at 16.4.3 and `react`/`react-dom` at 19.3.1 — only 2 dev-only majors behind, see **D1** |
 | Live security headers | ✅ **live at `https://irfanpdf.pages.dev`** since 2026-10-25 (all required headers + hashed CSP, verified in a browser) — **S1 fixed**; legacy `irfanpdf.github.io` still header-less by the "run both" decision |
 | Published download hashes vs real files | ✅ **3/3 match**; the publicly downloadable file hashes to the site's published value |
 | Live download links | ✅ resolve **200** with exactly the published byte sizes |
@@ -26,7 +26,7 @@ remediation status noted in each section. Nothing was deployed; nothing was push
 | Source/config exposure on the host | ✅ `/.git`, `/package.json`, `/.env`, `/README.md`, `/docs/*` all **404** |
 | SEO metadata | ✅ canonical, 9 Open Graph tags, `index,follow`, sitemap with 17 URLs, robots points at it — and after the 2026-10-25 canonical fix **both hosts advertise the same canonical** (`pages.dev`), so engines consolidate on the new URL instead of seeing duplicates (earlier that day each host self-canonicalised; found by measurement, fixed via the Actions `SITE_URL` variable — evidence in `CLOUDFLARE-PAGES-MIGRATION.md` §2.4) |
 | 404 behaviour | ✅ unknown route returns **404** |
-| Responsible-disclosure channel | ❌ **none** (`/.well-known/security.txt` → 404) — **S3** |
+| Responsible-disclosure channel | ⚠️ **added 2026-10-25** — `security.txt` at `/.well-known/security.txt` and `/security.txt`, Contact → the repo's private-vulnerability-reporting form (enabled in settings, URL verified to load); **locally verified, live check pending deploy** — **S3** |
 
 ---
 
@@ -124,13 +124,54 @@ from the repository. **Re-measured after the host move: still present on
 be the new host's default as well. Not fixed; recorded as observed (the exact
 Cloudflare-side mechanism was not verified).
 
-### S3 — LOW: no responsible-disclosure contact
+### S3 — LOW: no responsible-disclosure contact → **added 2026-10-25 (local build verified; live check pending deploy)**
 
-`/.well-known/security.txt` → 404, `/security.txt` → 404. The contact page itself states
-no support channel exists (`docs/MISSING-ITEMS.md` item 4). A security researcher who
-finds a problem on either public repo currently has no way to report it. Adding a
-`security.txt` needs an address to point at — not available, so the gap is recorded
-rather than filled with a placeholder.
+**As found:** `/.well-known/security.txt` → 404, `/security.txt` → 404. The contact page
+itself states no *support* channel exists (`docs/MISSING-ITEMS.md` item 4). A security
+researcher who finds a problem on either public repo had no way to report it.
+
+**Fix, using a contact that exists without publishing an email:** GitHub's **private
+vulnerability reporting** was **enabled in the repository settings** (Settings → Code
+security → Private vulnerability reporting → Enable), and the contact chosen for
+`security.txt` is the repository's own draft-advisory form:
+
+```
+Contact: https://github.com/irfanpdf/irfanpdf.github.io/security/advisories/new
+```
+
+That URL was opened in a browser after enabling the feature and **loads the "Draft
+Advisory" form** (not a 404), so the published contact is verified to work before it is
+advertised.
+
+**Files added** (identical content, both locations so either convention resolves):
+
+| File | Why |
+|---|---|
+| `public/.well-known/security.txt` | the location RFC 9116 standardises |
+| `public/security.txt` | legacy root location, which search engines and scanners also probe |
+
+Contents (RFC 9116 fields; no BOM, LF endings, 293 bytes):
+
+```
+Contact: https://github.com/irfanpdf/irfanpdf.github.io/security/advisories/new
+Expires: 2027-10-24T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://irfanpdf.pages.dev/.well-known/security.txt
+Policy: https://github.com/irfanpdf/irfanpdf.github.io/blob/main/docs/SECURITY-HARDENING.md
+```
+
+**Verified locally** (2026-10-25, hardened server): both URLs → **200**,
+`text/plain; charset=utf-8`, byte-identical to the source files, all five RFC fields
+present, `Expires` within the 1-year limit, and `check-live-headers` + `crawl` still
+**OVERALL: PASS** with the new files in the export. **The live-host check (both
+`pages.dev` and `github.io`) is not done yet — it can only happen after these files are
+pushed and both hosts rebuild.** That check is the remaining step, recorded under open
+action 3.
+
+**Not changed:** this is a *security* contact only. The general support-channel gap
+(MISSING-ITEMS item 4, the contact/FAQ/troubleshooting pages' "no support channel is
+published" wording) is a separate, still-open item — a bug report and a support request
+are different things, and only the former now has a route.
 
 ### D1 — LOW (dependencies): 0 vulnerabilities; `next` patched 2026-10-25
 
@@ -141,8 +182,8 @@ npm audit             →  found 0 vulnerabilities   (re-run after the update: s
 
 | Package | Installed (at analysis) | Latest | Kind |
 |---|---|---|---|
-| `next` | 16.4.2 | 16.4.3 | patch behind — framework (runtime) |
-| `react` / `react-dom` | 19.2.0 | 19.3.1 | minor behind (runtime) |
+| `next` | 16.4.2 | 16.4.3 | patch behind — framework (runtime) → **updated 2026-10-25** |
+| `react` / `react-dom` | 19.2.0 | 19.3.1 | minor behind (runtime) → **updated 2026-10-25 (second pass, see below)** |
 | `typescript` | 5.9.3 | 7.0.2 | major behind (**dev only**) |
 | `@types/node` | 24.19.2 | 26.6.5 | major behind (**dev only**) |
 | `tailwindcss` | 4.3.3 | current | up to date |
@@ -166,6 +207,23 @@ dev-only majors deliberately left alone).** Re-verified after the update:
 | Theme toggle (light → dark, `localStorage` updated) | ✅ works, 0 errors |
 | Site assistant (asked a real question) | ✅ opens, submits, replies, suggestions render, 0 errors |
 | `node crawl.js http://127.0.0.1:8124` | ✅ **OVERALL: PASS** — 347 assets, 0 failed; 404/robots/sitemap/content checks all PASS |
+
+**Second pass applied 2026-10-25 (`react` / `react-dom` 19.2.0 → 19.3.1 — the runtime
+minor that the first pass deliberately left alone, approved for update).** Kept
+exact-pinned (no caret) as the repo already did. Re-verified end to end:
+
+| Check | Result |
+|---|---|
+| `npm install react@19.3.1 react-dom@19.3.1` | ✅ `package.json` exact `19.3.1`, lockfile `19.3.1`, **0 vulnerabilities** (prod + dev) |
+| `npm run typecheck` | ✅ exit 0, no errors (`@types/react` satisfies `^19`) |
+| `npm run test:assistant` | ✅ **206 passed, 0 failed** |
+| `npm run build` (incl. `flatten-rsc` + `gen-headers`) | ✅ exit 0 — **same hash shape as before the upgrade**: 99 inline scripts → 40 unique hashes, 58 rules, longest line 842 — i.e. the new react emitted byte-identical inline script structure, so the CSP policy did not change |
+| `check-live-headers.mjs http://127.0.0.1:8124` | ✅ **OVERALL: PASS** — every required header, strict tier on real routes, catch-all tier + 404 on the unmatched URL, `/_headers` not served |
+| `node crawl.js http://127.0.0.1:8124` | ✅ **OVERALL: PASS** |
+| Browser, 8 routes (7 real + unmatched) | ✅ **0 CSP violations**; 3 routes showed a transient `502` on the first pass, an immediate re-read of the same routes showed **0 errors and 0 failed resources** (navigation-loop race against the local server, not a page defect — the crawl's 347 assets all succeeded) |
+| Theme toggle (→ dark, `localStorage.ipdf-site-theme` updated) | ✅ works, 0 errors |
+| SPA navigation `/` → `/download/` | ✅ client-side route change, 0 errors |
+| Site assistant (asked *"How do I compress a PDF?"*) | ✅ opens, accepts input, replies (502-char response), 0 errors |
 
 ---
 
@@ -307,9 +365,14 @@ to end from the public download back to the local artifact.
    [`CLOUDFLARE-PAGES-MIGRATION.md`](CLOUDFLARE-PAGES-MIGRATION.md). Deliberately left
    running alongside `irfanpdf.github.io` ("run both" decision), so the old URL stays
    header-less until you decide its SEO fate.
-3. **S3** — add `security.txt` once a contact address exists.
-4. **D1** — `next@16.4.3` **done** (2026-10-25, full re-verification in §2 D1). Still
-   open and deliberately untouched: `react` 19.2.0 → 19.3.1 (runtime), and the dev-only
+3. **S3** — add `security.txt` once a contact address exists. **Added 2026-10-25** with
+   GitHub private vulnerability reporting as the contact (feature enabled in repo
+   settings, advisory URL verified loading); local build + hardened-server verification
+   passed (§2 S3). **Remaining:** check both live hosts return 200 for
+   `/.well-known/security.txt` after the next deploy, then mark it fully done.
+4. **D1** — `next@16.4.3` **done** (2026-10-25, full re-verification in §2 D1);
+   `react`/`react-dom` 19.2.0 → **19.3.1 done** (2026-10-25, second pass with its own
+   full re-verification in §2 D1). Still open and deliberately untouched: the dev-only
    majors `typescript@7` / `@types/node@26` (optional and disruptive).
 5. Re-hash the two large public artifacts if byte-level confirmation of all three is
    wanted (§3.1).

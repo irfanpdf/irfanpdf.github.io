@@ -19,7 +19,7 @@ remediation status noted in each section. Nothing was deployed; nothing was push
 | Secrets / credentials in repo or history | ✅ **none found** (only empty `.env.example`, and only that file was ever added) |
 | Personal data in repo | ✅ **fixed forward 2026-10-25** — 29 username occurrences removed from the working tree; the pushed history still has them — see **P1** |
 | Dependency vulnerabilities (`npm audit`) | ✅ **0 vulnerabilities** (production *and* dev); `next` now at 16.4.3 — 4 packages still behind, see **D1** |
-| Live security headers | ❌ **still absent** (known; fix committed locally, needs the host move) — **S1** |
+| Live security headers | ❌ **still absent** (known; policy + migration runbook prepared 2026-10-25, blocked on a Cloudflare account) — **S1** |
 | Published download hashes vs real files | ✅ **3/3 match**; the publicly downloadable file hashes to the site's published value |
 | Live download links | ✅ resolve **200** with exactly the published byte sizes |
 | Tracking / cookies / third-party requests | ✅ **none** — no cookies on 3 probed routes, 0 external subresources, 0 mixed content |
@@ -85,8 +85,20 @@ Policy`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`,
 
 The complete, browser-verified replacement policy already exists in this repository
 (commit `8f60490`, [`SECURITY-HARDENING.md`](SECURITY-HARDENING.md)). GitHub Pages
-cannot send it — **the outstanding action is the host migration described in that
-document §7.**
+cannot send it — **the outstanding action is the host migration.**
+
+**Prep done 2026-10-25 (still not live):** the chosen path is Cloudflare Pages with no
+custom domain, and preparing it exposed a blocker that would have silently defeated the
+migration — Cloudflare caps every `_headers` line at **2,000 chars**, and the policy as
+originally written was **2,516** (40 hashes; only 29 fit). `gen-headers.mjs` now emits a
+catch-all tier plus one strict per-page tier (longest line **842**, 58 rules / limit 100,
+build fails if either limit is exceeded), the comma-join intersection it relies on was
+verified in a real browser, and a new `scripts/check-live-headers.mjs` asserts the result
+on any URL — it passes locally (**OVERALL: PASS**, 6 routes + unmatched URL + `/_headers`
+not served), as do the crawl (347 assets, 0 failed) and a browser pass (0 CSP violations
+on 7 routes). Remaining: create the Cloudflare account and deploy — full runbook in
+[`CLOUDFLARE-PAGES-MIGRATION.md`](CLOUDFLARE-PAGES-MIGRATION.md), including the
+still-open decision about what happens to `irfanpdf.github.io`.
 
 ### S2 — LOW: `Access-Control-Allow-Origin: *` on every response
 
@@ -266,8 +278,12 @@ to end from the public download back to the local artifact.
 1. **P1** — fix-forward **done** (2026-10-25, 29 occurrences in 6 files removed from the
    working tree; §2). Still open: the strings sit in the pushed history until a
    `git filter-repo` rewrite + force-push, which remains optional and unperformed.
-2. **S1** — migrate hosting so the committed `_headers` policy takes effect
-   (`SECURITY-HARDENING.md` §7).
+2. **S1** — migrate hosting so the committed `_headers` policy takes effect. **Prepared
+   2026-10-25** (two-tier `_headers` that fits Cloudflare's 2,000-char / 100-rule limits,
+   plus `scripts/check-live-headers.mjs`, verified locally end to end); **blocked on
+   creating a Cloudflare account**, and the `irfanpdf.github.io` URL/SEO decision is yours.
+   Runbook: [`CLOUDFLARE-PAGES-MIGRATION.md`](CLOUDFLARE-PAGES-MIGRATION.md);
+   background: `SECURITY-HARDENING.md` §4.1 and §7.
 3. **S3** — add `security.txt` once a contact address exists.
 4. **D1** — `next@16.4.3` **done** (2026-10-25, full re-verification in §2 D1). Still
    open and deliberately untouched: `react` 19.2.0 → 19.3.1 (runtime), and the dev-only

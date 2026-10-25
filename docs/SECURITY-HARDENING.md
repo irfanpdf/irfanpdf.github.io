@@ -44,8 +44,9 @@ in §1 are still what visitors receive today.
 
 | File | Purpose |
 |---|---|
-| `scripts/gen-headers.mjs` | Post-build generator. Scans every exported `out/**/*.html`, SHA-256-hashes each **executable inline script**, and writes `out/_headers` — the header file Cloudflare Pages and Netlify read from the site root. **Fail-closed:** exits non-zero (build fails) if it finds no HTML or cannot hash a single executable inline script, so a policy can never ship built from an empty set. |
-| `scripts/serve-headers.mjs` | Zero-dependency local server that serves `out/` **with exactly the headers `_headers` declares**, so the policy can be exercised in a real browser before any host change. |
+| `scripts/gen-headers.mjs` | Post-build generator. Scans every exported `out/**/*.html`, SHA-256-hashes each **executable inline script**, and writes `out/_headers` — the header file Cloudflare Pages and Netlify read from the site root. Emits **two tiers of CSP** (see §4) and enforces the host's documented limits: **fail-closed** if it finds no HTML, cannot hash a single executable inline script, produces any line over **2,000 chars**, or exceeds **100 rules** — so a policy a real host would silently drop can never be written. |
+| `scripts/serve-headers.mjs` | Zero-dependency local server that serves `out/` **with exactly the headers `_headers` declares**, applying Cloudflare's matching semantics (every matching rule applies; a repeated header has its values comma-joined; `_headers` itself is never served). |
+| `scripts/check-live-headers.mjs` | Post-deployment prober: `node scripts/check-live-headers.mjs <base-url>` asserts every required header on six routes, that a real route carries the **strict** CSP tier, that an unmatched URL still gets the **catch-all** tier and a 404, and that `/_headers` is not downloadable. Exit 0 = pass. |
 | `package.json` | `npm run build` now runs `next build && flatten-rsc && gen-headers` — the header file is produced by the same build that produced the HTML it describes, so hashes and pages cannot drift apart. |
 
 `out/` is gitignored, so `_headers` ships as part of every build artifact, never as a
@@ -83,6 +84,43 @@ browsing-topics=(), interest-cohort=()`,
 `X-Permitted-Cross-Domain-Policies: none`,
 `Strict-Transport-Security: max-age=31536000; includeSubDomains`.
 
+### 4.1 Why the file now carries *two* CSP tiers (added 2026-10-25)
+
+Prepared while prepping the Cloudflare Pages migration
+([`CLOUDFLARE-PAGES-MIGRATION.md`](CLOUDFLARE-PAGES-MIGRATION.md)). Cloudflare documents
+two hard limits for `_headers`: **100 rules** and **2,000 characters per line** — counting
+indentation and the header name. Measured against our single catch-all policy:
+
+| | chars | vs 2,000 limit |
+|---|---|---|
+| One `/*` policy with the union of all hashes | **2,516** | **over by 516** — the line would be dropped and the site would ship with **no CSP at all** |
+| Hashes needed for the union / hashes that fit | 40 / **29** | cannot fit |
+| A single page's own hashes (4–9) | **567–842** | fits |
+
+So `_headers` is now emitted as:
+
+| Rule | Carries |
+|---|---|
+| `/*` (catch-all) | all the non-CSP headers **+ a fallback CSP** identical to the above except `script-src 'self' 'unsafe-inline'` (345-char value). This is what an **unmatched URL** (a 404) receives — it still enforces `object-src`, `base-uri`, `form-action`, `frame-ancestors`, `default-src`, style/img/connect restrictions. |
+| one rule per exported page (57 rules: `/`, `/x/`, `/x`, `/x/index.html` variants) | the **strict** CSP with exactly that page's hashes (572–842 chars) |
+
+A real page matches both rules and therefore receives **two policies, which browsers
+intersect (AND)**: the fallback permits any inline script, the strict policy permits only
+that page's own hashes, so the effective script rule is the strict one — an injected
+inline script is still blocked. This was not assumed: it was tested in a real browser
+before the generator was rewritten. Serving one header value containing
+`policyA, policyB` (what Cloudflare's *"values are joined with a comma separator"*
+produces) ran the hashed control script and **blocked the unhashed one** with a violation
+citing the strict directive — byte-for-byte the same behaviour as two separate header
+fields. `serve-headers.mjs` reproduces the comma-join locally so the two tiers are
+exercised before deployment, not after.
+
+**Residual gap (honest):** at an *unmatched* URL only the catch-all applies, so the 404
+page's inline scripts are not hash-constrained there. It is a static page with no URL
+reflector, and it still sits behind the rest of the policy — but it is a weaker position
+than a real route, and `check-live-headers.mjs` reports it as such rather than passing it
+off as identical.
+
 Rationale for the choices:
 
 - **`default-src 'none'` first** — every fetch mode has to be named, so a future
@@ -106,6 +144,9 @@ Rationale for the choices:
 |---|---|
 | Exported HTML files scanned | **20** |
 | Executable inline scripts found | **99** → **40 unique SHA-256 hashes** |
+| Hashes per page (what a strict rule carries) | **4–9** → 567–842-char lines |
+| `_headers` rules emitted / limit | **58 / 100** (1 catch-all + 57 strict) |
+| Longest line / limit | **842 / 2,000 chars** (the pre-fix single policy was 2,516 — over) |
 | External subresource references in exported HTML (`http(s)://` in `src=`/`link href` to css/js/font, `integrity=`) | **0** |
 | `fetch(` / `WebSocket` / `EventSource` / worker usage in `src/` | **0** |
 | Stylesheets | 1 external (`/_next/static/chunks/*.css`), **0 `<style>` tags** |
@@ -141,6 +182,30 @@ attributes work. Re-tested: **0 violations**. Residual risk is recorded in §6.
 | `npm run test:assistant` | **206 passed, 0 failed** |
 | `npm run build` | exit 0, `gen-headers: 20 HTML, 99 scripts → 40 hashes` |
 
+### 5.4 Re-verification after the two-tier rewrite (2026-10-25)
+
+Everything above was re-run after `gen-headers.mjs` was changed to emit per-page rules
+(§4.1) — the policy visitors would actually receive changed shape, so the evidence had to
+be rebuilt, not copied:
+
+| Check | Result |
+|---|---|
+| `npm run build` | exit 0 — `58 rules (1 catch-all + 57 strict) / limit 100; longest line 842 / limit 2000` |
+| Line-length / rule-count audit of `out/_headers` | **124 lines, 0 over 2,000 chars, 58 rules** |
+| `node scripts/check-live-headers.mjs http://127.0.0.1:8124` | **OVERALL: PASS** — 6 routes all have every required header + the strict tier (4–40 `sha256-` hashes), the unmatched URL returns 404 with the 345-char catch-all tier, `/_headers` → 404 |
+| Browser, 7 real routes (`/`, `/download/`, `/docs/`, `/docs/faq/`, `/features/`, `/compare/`, `/security/`) | **0 CSP violations / 0 console errors** under the comma-joined two-tier policy |
+| Browser, unmatched URL | only the expected `404 (Not Found)` message — the catch-all tier does not block the page |
+| Theme toggle (dark → light) | works, `localStorage.ipdf-site-theme` updated, 0 errors |
+| Site assistant opens and shows its input | works, 0 errors |
+| `node crawl.js http://127.0.0.1:8124` | **OVERALL: PASS** — 347 assets, 0 failed |
+| `npm run typecheck` / `npm run test:assistant` | exit 0 / **206 passed, 0 failed** |
+
+One process note worth recording: the first run of `check-live-headers.mjs` reported two
+failures because a **stale `serve-headers` process from earlier in the session was still
+holding port 8124** (it had loaded the old `_headers`, and `EADDRINUSE` killed the new
+server silently). Killing it and re-running gave PASS across the board. The failures were
+real — they just measured the old server, not the new file.
+
 **Honest note on a transient symptom:** during this session three loads reported
 `net::ERR_INCOMPLETE_CHUNKED_ENCODING` on `/screenshots/home.png`, all in the window when
 the local test server was being killed and restarted. The file itself was verified sound
@@ -169,38 +234,51 @@ has not been reproduced outside the restart window and does not involve the head
 5. **No CSP reporting endpoint.** There is no backend to receive `report-uri` reports, so
    violations are visible only in the visitor's console. `Report-Only` mode was not
    enabled for the same reason.
-6. **This is not an audit of the site's content or an XSS test.** No penetration test,
-   no SAST, no dependency audit (`npm audit` not run) was performed as part of this work.
-   A CSP is defence-in-depth; a clean console does **not** prove the absence of
-   vulnerabilities.
+6. **This is not an audit of the site's content or an XSS test.** No penetration test and
+   no SAST were performed as part of this work. `npm audit` *was* run on 2026-10-25 and
+   reported **0 vulnerabilities** (production and dev), but a dependency audit is not a
+   security assessment. A CSP is defence-in-depth; a clean console does **not** prove the
+   absence of vulnerabilities.
 7. **`Access-Control-Allow-Origin: *`** on the live site is GitHub Pages' own default and
    cannot be removed from this repository; it disappears when the host changes.
 8. **Hosting caveat:** `_headers` is understood by **Cloudflare Pages and Netlify**.
    **Vercel does not read `_headers`** — a move there would need an equivalent
    `vercel.json`, which has not been written.
+9. **The catch-all tier is deliberately weaker (added 2026-10-25).** Because Cloudflare
+   caps `_headers` lines at 2,000 chars, the strict hash list cannot live on `/*`; only
+   real routes carry it. At an unmatched URL the fallback policy applies, and its
+   `script-src 'self' 'unsafe-inline'` means inline script there is **not** hash-checked.
+   Everything else in the policy (no objects, no frames, no base, `frame-ancestors 'none'`,
+   same-origin-only styles/images/connect) still applies. Closing this entirely would mean
+   either a host-side rewrite (Cloudflare Worker/Snippet, no line limit) or a custom
+   domain — both recorded in §7.
 
 ## 7. Moving to a host that can send these headers (the chosen path)
 
-Not performed — these are the steps, so the decision is executable later:
+**Decision 2026-10-25: Cloudflare Pages (option A — no custom domain).** Full, step-by-step
+runbook, including the env vars, the `_headers` limits this file now respects, and the
+still-open question of what happens to `irfanpdf.github.io`, is in
+[`CLOUDFLARE-PAGES-MIGRATION.md`](CLOUDFLARE-PAGES-MIGRATION.md). Summary:
 
-1. **Cloudflare Pages** (or **Netlify**): create the project → connect the GitHub repo
-   `irfanpdf/irfanpdf.github.io`.
-   - Build command: `npm run build`
-   - Output directory: `out`
-   - Environment variables: `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_DOWNLOAD_BASE_URL`
-     (both currently unset — see `.env.example` and `docs/MISSING-ITEMS.md`)
-   - `_headers` in the output root is applied automatically; no extra configuration.
-2. **Custom domain.** A `*.github.io` name cannot be proxied through Cloudflare, so full
-   headers (including `frame-ancestors`) require the site's own domain. This is also what
-   `NEXT_PUBLIC_SITE_URL` is waiting for.
-3. **GitHub Pages workflow** (`.github/workflows/deploy.yml`) can stay untouched during
-   the transition; it simply keeps serving the header-less version.
-4. **Verify after cutover** — the checks that prove it worked:
+1. **Not performed** — it needs a Cloudflare account that does not exist yet.
+2. **Cloudflare Pages** reads `out/_headers` natively: build command `npm run build`,
+   output directory `out`, Node 20+. The `_headers` file now fits the host's documented
+   limits (§4.1), so the policy that was verified locally is the policy visitors get.
+3. **No custom domain is required for the headers** — this corrects an earlier version of
+   this section, which said a domain was needed. That is only true for *proxying*
+   `github.io` through Cloudflare (Transform Rules need a zone you own). On Pages,
+   `_headers` works on the free `*.pages.dev` name. A domain remains optional, and would
+   be needed later only to close residual item §6.9.
+4. **GitHub Pages workflow** (`.github/workflows/deploy.yml`) stays untouched during the
+   transition; it keeps serving the header-less version at the old URL. The SEO
+   consequences of running both are the one decision this repo cannot make — see the
+   migration doc.
+5. **Verify after cutover** with the checker that already exists:
    ```powershell
-   curl -I https://your-domain/            # expect CSP, nosniff, DENY, Referrer-Policy…
-   node crawl.js https://your-domain       # existing route/link/asset smoke test
+   node scripts/check-live-headers.mjs https://<your-pages-domain>   # must end OVERALL: PASS
+   node crawl.js https://<your-pages-domain>                         # route/link/asset smoke test
    ```
-   and confirm the browser console stays clean on `/`, `/download/`, `/docs/`.
+   plus a browser console read on `/`, `/download/`, `/docs/` (0 CSP violations).
 
 ## 8. How to re-run this verification
 

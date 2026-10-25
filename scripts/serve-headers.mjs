@@ -32,29 +32,53 @@ const TYPES = {
   ".map": "application/json",
 };
 
-/** Parse out/_headers (Cloudflare Pages / Netlify `_headers` format). */
-function loadHeaders() {
+/** Parse out/_headers (Cloudflare Pages / Netlify `_headers` format) into rules. */
+function loadHeaderRules() {
   const file = path.join(ROOT, "_headers");
   if (!fs.existsSync(file)) {
     console.error("serve-headers: out/_headers missing — run `npm run build`");
     process.exit(1);
   }
-  const map = {};
+  const rules = [];
   let current = null;
   for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
     if (!line.trim()) continue;
     if (!/^\s/.test(line)) {
-      current = line.trim();
-      map[current] = map[current] || {};
+      current = { pattern: line.trim(), headers: {} };
+      rules.push(current);
     } else if (current) {
       const idx = line.indexOf(":");
-      if (idx > 0) map[current][line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+      if (idx > 0) current.headers[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
     }
   }
-  return map["/*"] || {};
+  return rules;
 }
 
-const HEADERS = loadHeaders();
+const RULES = loadHeaderRules();
+
+/** Cloudflare pattern matching: exact paths, plus `prefix*` splats. */
+function patternMatches(pattern, urlPath) {
+  if (pattern === "/*") return true;
+  if (pattern.endsWith("/*")) return urlPath.startsWith(pattern.slice(0, -1));
+  if (pattern.endsWith("*")) return urlPath.startsWith(pattern.slice(0, -1));
+  return pattern === urlPath;
+}
+
+/** Headers for a REQUEST path: every matching rule applies (Cloudflare:
+ * "An incoming request which matches multiple rules' URL patterns will
+ * inherit all rules' headers", and a repeated header has its values joined
+ * with a comma — which for CSP means two intersecting policies). */
+function headersFor(urlPath) {
+  const out = {};
+  for (const rule of RULES) {
+    if (!patternMatches(rule.pattern, urlPath)) continue;
+    for (const [name, value] of Object.entries(rule.headers)) {
+      const key = name.toLowerCase();
+      out[key] = key in out ? `${out[key]}, ${value}` : value;
+    }
+  }
+  return out;
+}
 
 function resolveFile(urlPath) {
   const clean = decodeURIComponent(urlPath.split("?")[0]).replace(/\\/g, "/");
@@ -75,11 +99,23 @@ function resolveFile(urlPath) {
 }
 
 const server = http.createServer((req, res) => {
-  const file = resolveFile(req.url || "/");
+  const raw = req.url || "/";
+  const urlPath = decodeURIComponent(raw.split("?")[0]).replace(/\\/g, "/") || "/";
+
+  // Cloudflare Pages parses `_headers` but never serves it as an asset.
+  if (urlPath === "/_headers") {
+    res.writeHead(404, { "content-type": "text/plain" });
+    res.end("Not found");
+    return;
+  }
+
+  const file = resolveFile(raw);
   const status = file ? 200 : 404;
   const target = file || (fs.existsSync(path.join(ROOT, "404.html")) ? path.join(ROOT, "404.html") : null);
 
-  const headers = { ...HEADERS };
+  // Headers are chosen by the REQUESTED path (Cloudflare behaviour), so a
+  // 404 at an unmatched URL gets the catch-all rule only.
+  const headers = headersFor(urlPath);
   if (target) headers["content-type"] = TYPES[path.extname(target).toLowerCase()] || "application/octet-stream";
   res.writeHead(status, headers);
   if (target) fs.createReadStream(target).pipe(res);
@@ -88,6 +124,7 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () =>
   console.log(
-    `serving ${ROOT} on http://127.0.0.1:${PORT} with ${Object.keys(HEADERS).length} security header(s)`
+    `serving ${ROOT} on http://127.0.0.1:${PORT} with ${RULES.length} _headers rule(s) ` +
+      `(${Object.keys(RULES[0]?.headers || {}).length} on the catch-all)`
   )
 );

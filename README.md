@@ -81,11 +81,15 @@ Notes:
    hashes every executable inline script in the export and writes `out/_headers`
    (Content-Security-Policy + nosniff, DENY, Referrer-Policy, Permissions-Policy,
    COOP/CORP, HSTS) for hosts that support them — Cloudflare Pages and Netlify.
-   **GitHub Pages ignores `_headers`**, so the live site does not receive these
-   headers yet; see [`docs/SECURITY-HARDENING.md`](docs/SECURITY-HARDENING.md) for
-   the measured live headers, the browser verification (0 CSP violations across 18
-   routes) and the host-migration steps. The generator fails the build rather than
-   emit a policy it cannot derive.
+   It writes **two tiers** — a catch-all fallback rule plus one strict per-page rule
+   carrying only that page's hashes — because Cloudflare caps every `_headers` line at
+   2,000 chars and the single union policy was 2,516 (the build fails if either that
+   limit or the 100-rule limit would be exceeded). **GitHub Pages ignores `_headers`**,
+   so the live site does not receive these headers yet; see
+   [`docs/SECURITY-HARDENING.md`](docs/SECURITY-HARDENING.md) for the measured live
+   headers and browser verification (0 CSP violations), and
+   [`docs/CLOUDFLARE-PAGES-MIGRATION.md`](docs/CLOUDFLARE-PAGES-MIGRATION.md) for the
+   prepared, not-yet-performed cutover.
 
 ## Testing this site
 
@@ -95,6 +99,7 @@ npm run test:assistant   # site-assistant routing/fallback/link unit tests (206 
 npm run build            # static export + payload adapter + out/_headers generator
 node test-server.js      # serves out\ on http://127.0.0.1:8123
 node scripts/serve-headers.mjs   # same, but WITH the security headers (:8124)
+node scripts/check-live-headers.mjs http://127.0.0.1:8124   # header assertions, PASS/FAIL
 node crawl.js            # routes, internal links, assets, 404, content checks
 ```
 
@@ -162,4 +167,7 @@ component inventory.
 | Roadmap (current vs planned) | `docs/ROADMAP.md` |
 | Asset inventory | `docs/ASSET-INVENTORY.md` |
 | Component architecture | `docs/COMPONENT-ARCHITECTURE.md` |
+| Security hardening (headers, CSP, verification) | `docs/SECURITY-HARDENING.md` |
+| Full-site analysis (2026-10-25: security, deps, integrity, exposure) | `docs/WEBSITE-ANALYSIS.md` |
+| Cloudflare Pages migration runbook (prepared, not performed) | `docs/CLOUDFLARE-PAGES-MIGRATION.md` |
 | Build & deployment instructions | this file |

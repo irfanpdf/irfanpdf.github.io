@@ -9,16 +9,27 @@
  *   - a REAL route carries the strict CSP tier (at least one sha256- hash) —
  *     this is the check that would have caught Cloudflare dropping an
  *     over-length line
- *   - an UNMATCHED path still gets a CSP (catch-all rule) and returns 404
+ *   - an UNMATCHED path still gets a CSP (catch-all rule) and returns 404, and
+ *     that catch-all must be **hash-constrained (strong mode: sha256- hashes,
+ *     no 'unsafe-inline')** — this is the check that asserts residual §6.9 is
+ *     closed. gen-headers falls back to 'unsafe-inline' when a platform's hash
+ *     union exceeds Cloudflare's 2,000-char line limit (Windows builds do, the
+ *     deployed Linux build does not); pass `--allow-fallback` to accept that
+ *     mode deliberately, otherwise a fallback is reported as a FAILURE so a
+ *     live regression cannot slip through unnoticed
  *   - `/_headers` itself is not served as an asset (Cloudflare behaviour)
+ *
+ * Usage:
+ *   node scripts/check-live-headers.mjs <base-url> [--allow-fallback]
  *
  * Exit code 0 = everything passed, 1 = at least one check failed.
  */
 const BASE = (process.argv[2] || "").replace(/\/+$/, "");
 if (!BASE) {
-  console.error("usage: node scripts/check-live-headers.mjs <base-url>");
+  console.error("usage: node scripts/check-live-headers.mjs <base-url> [--allow-fallback]");
   process.exit(2);
 }
+const ALLOW_FALLBACK = process.argv.includes("--allow-fallback");
 
 const REQUIRED = [
   "content-security-policy",
@@ -77,7 +88,22 @@ async function checkRoute(pathname, { expectStatus, expectStrictCsp }) {
     say(/object-src 'none'/.test(csp), `${pathname} object-src 'none'`);
   } else if (expectStrictCsp === false) {
     say(Boolean(csp), `${pathname} catch-all CSP`, csp ? `${csp.length} chars` : "MISSING");
-    say(!/sha256-/.test(csp), `${pathname} is the fallback tier`, "no hashes, as designed");
+    const hashes = (csp.match(/sha256-/g) || []).length;
+    const strong = hashes > 0 && !/unsafe-inline/.test(csp);
+    const fallback = hashes === 0 && /unsafe-inline/.test(csp);
+    if (strong) {
+      say(true, `${pathname} catch-all is hash-constrained (strong)`, `${hashes} hash(es), no unsafe-inline`);
+    } else if (fallback) {
+      say(
+        ALLOW_FALLBACK,
+        `${pathname} catch-all is hash-constrained`,
+        ALLOW_FALLBACK
+          ? "FALLBACK mode accepted (--allow-fallback): 'unsafe-inline', residual §6.9 open here"
+          : "FALLBACK: 'unsafe-inline' and no hashes — residual §6.9 OPEN (re-run with --allow-fallback to accept)"
+      );
+    } else {
+      say(false, `${pathname} catch-all is hash-constrained`, `unexpected CSP shape (${hashes} hash(es))`);
+    }
   }
 }
 

@@ -46,7 +46,7 @@ in §1 are still what visitors receive today.
 |---|---|
 | `scripts/gen-headers.mjs` | Post-build generator. Scans every exported `out/**/*.html`, SHA-256-hashes each **executable inline script**, and writes `out/_headers` — the header file Cloudflare Pages and Netlify read from the site root. Emits **two tiers of CSP** (see §4) and enforces the host's documented limits: **fail-closed** if it finds no HTML, cannot hash a single executable inline script, produces any line over **2,000 chars**, or exceeds **100 rules** — so a policy a real host would silently drop can never be written. |
 | `scripts/serve-headers.mjs` | Zero-dependency local server that serves `out/` **with exactly the headers `_headers` declares**, applying Cloudflare's matching semantics (every matching rule applies; a repeated header has its values comma-joined; `_headers` itself is never served). |
-| `scripts/check-live-headers.mjs` | Post-deployment prober: `node scripts/check-live-headers.mjs <base-url>` asserts every required header on six routes, that a real route carries the **strict** CSP tier, that an unmatched URL still gets the **catch-all** tier and a 404, and that `/_headers` is not downloadable. Exit 0 = pass. |
+| `scripts/check-live-headers.mjs` | Post-deployment prober: `node scripts/check-live-headers.mjs <base-url>` asserts every required header on six routes, that a real route carries the **strict** CSP tier, that an unmatched URL still gets the **catch-all** tier **and that this tier is hash-constrained (strong mode: `sha256-` present, no `unsafe-inline`)** — the check that proves residual §6.9 closed — and that `/_headers` is not downloadable. Pass `--allow-fallback` to accept the documented `unsafe-inline` fallback deliberately (local Windows builds, whose hash union exceeds the host's line limit); without it a fallback is a **FAIL**. Exit 0 = pass. |
 | `package.json` | `npm run build` now runs `next build && flatten-rsc && gen-headers` — the header file is produced by the same build that produced the HTML it describes, so hashes and pages cannot drift apart. |
 
 `out/` is gitignored, so `_headers` ships as part of every build artifact, never as a
@@ -101,13 +101,16 @@ So `_headers` is now emitted as:
 
 | Rule | Carries |
 |---|---|
-| `/*` (catch-all) | all the non-CSP headers **+ a fallback CSP** identical to the above except `script-src 'self' 'unsafe-inline'` (345-char value). This is what an **unmatched URL** (a 404) receives — it still enforces `object-src`, `base-uri`, `form-action`, `frame-ancestors`, `default-src`, style/img/connect restrictions. |
+| `/*` (catch-all) | all the non-CSP headers **+ the catch-all CSP**, whose `script-src` carries the **union of every hash in the export** when that fits the 2,000-char line (**strong mode** — what the deployed Linux build emits), falling back to `script-src 'self' 'unsafe-inline'` with a loud build-log warning when it does not (Windows builds: 40 hashes = 2,516-char line) — see §6 item 9. This is what an **unmatched URL** (a 404) receives; it also enforces `object-src`, `base-uri`, `form-action`, `frame-ancestors`, `default-src`, style/img/connect restrictions either way. |
 | one rule per exported page (57 rules: `/`, `/x/`, `/x`, `/x/index.html` variants) | the **strict** CSP with exactly that page's hashes (572–842 chars) |
 
 A real page matches both rules and therefore receives **two policies, which browsers
-intersect (AND)**: the fallback permits any inline script, the strict policy permits only
-that page's own hashes, so the effective script rule is the strict one — an injected
-inline script is still blocked. This was not assumed: it was tested in a real browser
+intersect (AND)**: a script must pass the catch-all **and** the strict policy. In strong
+mode the catch-all itself only allows the build's own hashes (the union, which includes
+that page's); in fallback mode it permits any inline script while the strict policy
+permits only that page's own hashes — so in **both** modes the effective script rule on a
+real page is the strict one, and an injected inline script is blocked. This was not
+assumed: it was tested in a real browser
 before the generator was rewritten. Serving one header value containing
 `policyA, policyB` (what Cloudflare's *"values are joined with a comma separator"*
 produces) ran the hashed control script and **blocked the unhashed one** with a violation
@@ -286,14 +289,28 @@ served HTML.
 8. **Hosting caveat:** `_headers` is understood by **Cloudflare Pages and Netlify**.
    **Vercel does not read `_headers`** — a move there would need an equivalent
    `vercel.json`, which has not been written.
-9. **The catch-all tier is deliberately weaker (added 2026-10-25).** Because Cloudflare
-   caps `_headers` lines at 2,000 chars, the strict hash list cannot live on `/*`; only
-   real routes carry it. At an unmatched URL the fallback policy applies, and its
-   `script-src 'self' 'unsafe-inline'` means inline script there is **not** hash-checked.
-   Everything else in the policy (no objects, no frames, no base, `frame-ancestors 'none'`,
-   same-origin-only styles/images/connect) still applies. Closing this entirely would mean
-   either a host-side rewrite (Cloudflare Worker/Snippet, no line limit) or a custom
-   domain — both recorded in §7.
+9. **The catch-all tier was deliberately weaker — now closed in-repo, live check
+   pending (revised 2026-10-25).** *As originally written:* Cloudflare caps `_headers`
+   lines at 2,000 chars, so the strict hash list could not live on `/*`, and an
+   unmatched URL received `script-src 'self' 'unsafe-inline'` — inline script on the
+   404 page was **not** hash-checked. Two measurements changed the picture:
+   **(a)** Cloudflare *merges* rules — a real page is served catch-all **and** its
+   strict rule comma-joined (measured on `/features/`: two `default-src` directives,
+   891 chars total) — so the catch-all cannot simply carry only the 404's hashes: it
+   must permit *every* page's inline scripts too, or real pages break;
+   **(b)** the 404 served at an unmatched URL is **our own** Next 404 page (4
+   executable inline scripts), so its hashes are knowable at build time.
+   The fix therefore puts the **union of all hashes** on `/*` (dropping
+   `unsafe-inline`) — the same union the pre-two-tier single policy carried. Whether
+   it fits is platform-dependent: the Linux build that deploys **fits** (21 hashes ≈
+   1,491-char line), Windows builds do **not** (40 hashes = 2,516 chars), so
+   `gen-headers` automatically falls back to `unsafe-inline` there and prints a
+   WARNING naming this residual as open *for that build*. `check-live-headers.mjs`
+   now **fails** on a fallback catch-all unless `--allow-fallback` is passed, so a
+   live regression to the weak mode cannot pass unnoticed. Local (Windows) results:
+   fallback mode as predicted, strict check FAIL, `--allow-fallback` PASS, 0 CSP
+   violations. **Not yet verified:** the live host's mode after the next deploy —
+   that measurement, and this item's final status, follow in the next commit.
 
 ## 7. Moving to a host that can send these headers (the chosen path)
 
@@ -316,8 +333,10 @@ the project settings, and the rollback, is in
 3. **No custom domain is required for the headers** — this corrects an earlier version of
    this section, which said a domain was needed. That is only true for *proxying*
    `github.io` through Cloudflare (Transform Rules need a zone you own). On Pages,
-   `_headers` works on the free `*.pages.dev` name. A domain remains optional, and would
-   be needed later only to close residual item §6.9.
+   `_headers` works on the free `*.pages.dev` name. A domain remains optional — with the
+   union-in-catch-all change (§6 item 9) the gap it used to close is closed in-repo
+   instead, so a domain is now wanted only for its own sake (permanent name, meaningful
+   `includeSubDomains`).
 4. **GitHub Pages workflow** (`.github/workflows/deploy.yml`) stays untouched; under the
    "run both" decision it keeps serving the header-less version at the old URL, so old
    links never break (verified: `irfanpdf.github.io` → 200, `Server: GitHub.com`, no CSP).
@@ -342,8 +361,13 @@ npm run build                       # regenerates out/_headers (fails closed if 
 node scripts/serve-headers.mjs      # serves out/ with the real headers on :8124
 # then load http://127.0.0.1:8124/ in a browser and read the console:
 #   0 "Content Security Policy" messages = policy and HTML still agree
+node scripts/check-live-headers.mjs http://127.0.0.1:8124 --allow-fallback
+#   ^ local Windows builds emit the documented unsafe-inline catch-all fallback
+#     (their hash union exceeds the host's 2,000-char line); without the flag the
+#     catch-all check FAILS by design
 
 # against the production site (after any push that Cloudflare rebuilds):
+#   NO flag here on purpose — a fallback catch-all on the live host is a FAIL:
 node scripts/check-live-headers.mjs https://irfanpdf.pages.dev   # must end OVERALL: PASS
 node crawl.js https://irfanpdf.pages.dev                         # must end OVERALL: PASS
 ```

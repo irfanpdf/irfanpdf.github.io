@@ -2,8 +2,13 @@
 
 **Date:** 2026-10-25 · **Method:** read-only inspection of the repository and the live
 deployment, plus live HTTP probes, a public-artifact download, and the already-built
-site served locally. Nothing was deployed; nothing was pushed. Where a claim could not
-be checked, it says so.
+site served locally. Where a claim could not be checked, it says so.
+
+**Follow-ups applied the same day (2026-10-25), each re-verified after the change:**
+**P1** — fix-forward redaction of the username paths (29 occurrences across 6 files);
+**D1** — `next` 16.4.2 → 16.4.3 with a full rebuild + typecheck + assistant tests +
+browser-under-CSP checks + crawl. The findings below are written as first found, with the
+remediation status noted in each section. Nothing was deployed; nothing was pushed.
 
 ---
 
@@ -12,8 +17,8 @@ be checked, it says so.
 | Area | Result |
 |---|---|
 | Secrets / credentials in repo or history | ✅ **none found** (only empty `.env.example`, and only that file was ever added) |
-| Personal data in repo | ❌ **Windows username + local paths are public** — see finding **P1** |
-| Dependency vulnerabilities (`npm audit`) | ✅ **0 vulnerabilities** (production *and* dev) — but 5 packages are behind, see **D1** |
+| Personal data in repo | ✅ **fixed forward 2026-10-25** — 29 username occurrences removed from the working tree; the pushed history still has them — see **P1** |
+| Dependency vulnerabilities (`npm audit`) | ✅ **0 vulnerabilities** (production *and* dev); `next` now at 16.4.3 — 4 packages still behind, see **D1** |
 | Live security headers | ❌ **still absent** (known; fix committed locally, needs the host move) — **S1** |
 | Published download hashes vs real files | ✅ **3/3 match**; the publicly downloadable file hashes to the site's published value |
 | Live download links | ✅ resolve **200** with exactly the published byte sizes |
@@ -41,20 +46,35 @@ already-pushed history, not just locally:
 | `docs/PUBLISH-GITHUB.md:74` | `` Attach the three artifacts from `C:\Users\<local-user>\Desktop\docuforge\dist\` `` |
 | `docs/VERIFICATION-REPORT.md:4` | `` **Subject:** `C:\Users\<local-user>\Desktop\docuforge` `` |
 
-**What this leaks:** the machine's user name (`<local-user>`) and the directory layout of the
+*(The table shows `<local-user>` in place of the actual Windows user-name string, so
+this report does not repeat the very value it is reporting on. As pushed on
+`origin/main`, the real name is in these five lines — plus, less obviously, in the three
+`docs/evidence/regression-gate-2026-10-17-*.txt` logs (8 occurrences each, 24 total).
+Those logs are **UTF-16**, which git classifies as binary, so a plain `git grep -I` scan
+silently skips them — the counts below come from a byte-level scan of every tracked file
+in both encodings, not from `git grep`.)*
+
+**Total: 29 occurrences in 6 tracked files**, all present on `origin/main`.
+
+**What this leaks:** the machine's user name and the directory layout of the
 private application source. Not credentials, not the application source itself (that
 repository has **no remote at all** and is not public — verified below).
 
-**Three remediation options, in increasing order of effort:**
+**Remediation — decision taken 2026-10-25: fix forward only.**
 
-1. **Fix forward** — reword the five lines to paths without the username. Fast, but the
-   strings stay in the pushed history.
-2. **Rewrite history + force-push** — `git filter-repo`/`filter-branch` over the pushed
-   history, then `git push --force`. Removes it for real; rewrites all four commit hashes
-   and requires a force push to a public repo (anyone who cloned keeps the old copy).
-3. **Leave it** — accept the exposure as low-impact (user name only).
+* The five documentation lines were rewritten with placeholders (sibling-folder /
+  `<checkout-path>` / `<path-to>`), so every future commit and checkout is clean.
+* The three evidence logs were redacted too: the user-name substring was replaced with
+  `local-user` (24 substitutions). **Nothing else in those logs changed** — same
+  UTF-16 encoding, same line counts (1827 / 1831 / 1827), same test results; only the
+  user name inside path strings was substituted. The substitution rule is stated here
+  rather than inside the logs so the raw output stays raw.
+* A repeat byte-level scan of the whole working tree returns **0 occurrences**.
 
-*Decision not taken — recorded here so it is not silently ignored.*
+The strings **remain in the pushed history** (a later `git filter-repo` rewrite +
+force-push would remove them; deliberately not done — it rewrites every commit hash on a
+public repo and any existing clone keeps the old copy). History rewrite remains a
+recorded open option (§7 item 1).
 
 ### S1 — MEDIUM (security headers): the live site still has no CSP / nosniff / clickjacking protection
 
@@ -81,14 +101,14 @@ finds a problem on either public repo currently has no way to report it. Adding 
 `security.txt` needs an address to point at — not available, so the gap is recorded
 rather than filled with a placeholder.
 
-### D1 — LOW (dependencies): 0 vulnerabilities, 5 packages behind
+### D1 — LOW (dependencies): 0 vulnerabilities; `next` patched 2026-10-25
 
 ```
-npm audit --omit=dev  →  found 0 vulnerabilities
-npm audit             →  found 0 vulnerabilities
+npm audit --omit=dev  →  found 0 vulnerabilities   (re-run after the update: still 0)
+npm audit             →  found 0 vulnerabilities   (re-run after the update: still 0)
 ```
 
-| Package | Installed | Latest | Kind |
+| Package | Installed (at analysis) | Latest | Kind |
 |---|---|---|---|
 | `next` | 16.4.2 | 16.4.3 | patch behind — framework (runtime) |
 | `react` / `react-dom` | 19.2.0 | 19.3.1 | minor behind (runtime) |
@@ -98,8 +118,23 @@ npm audit             →  found 0 vulnerabilities
 
 CI installs with `npm ci`, so the lockfile is authoritative. Nothing here is urgent —
 `npm audit` is clean — but `next 16.4.3` is a framework patch and the usual practice is
-to take it. Not updated as part of an *analysis*; that is a change requiring its own
-build + crawl verification.
+to take it.
+
+**Applied 2026-10-25 (`next` 16.4.2 → 16.4.3, framework patch only; react and the
+dev-only majors deliberately left alone).** Re-verified after the update:
+
+| Check | Result |
+|---|---|
+| `npm install next@16.4.3` | ✅ `package.json` → `^16.4.3`, lockfile → 16.4.3, 0 vulnerabilities |
+| `npm run typecheck` | ✅ exit 0, no errors |
+| `npm run test:assistant` | ✅ **206 passed, 0 failed** |
+| `npm run build` (incl. `gen-headers`) | ✅ exit 0 — 20 HTML files, 99 inline scripts → **40 unique SHA-256 hashes**, `out\_headers` rewritten (CSP 2489 chars) |
+| Headers on 6 routes (`/`, `/download/`, `/docs/`, `/features/`, `/security/`, `/404.html`) | ✅ all 200 with CSP + `nosniff` + `X-Frame-Options: DENY` + `Referrer-Policy` + `Permissions-Policy` + HSTS |
+| Browser console under that CSP — 5 routes | ✅ **0 errors / 0 CSP violations** |
+| SPA navigation (`Explore all features` → `/features/`) | ✅ client-side route change, 0 errors |
+| Theme toggle (light → dark, `localStorage` updated) | ✅ works, 0 errors |
+| Site assistant (asked a real question) | ✅ opens, submits, replies, suggestions render, 0 errors |
+| `node crawl.js http://127.0.0.1:8124` | ✅ **OVERALL: PASS** — 347 assets, 0 failed; 404/robots/sitemap/content checks all PASS |
 
 ---
 
@@ -217,7 +252,7 @@ but the two unreachable results are recorded rather than assumed fine.
 
 | Repository | Visibility | Contains |
 |---|---|---|
-| `irfanpdf/irfanpdf.github.io` | **public** | website source + docs (**exposes `<local-user>` paths — P1**) |
+| `irfanpdf/irfanpdf.github.io` | **public** | website source + docs (**did expose local username paths — P1, fixed forward 2026-10-25; still present in pushed history**) |
 | `irfanpdf/irfanpdf-releases` | **public** | the three v1.7.0 installers |
 | `docuforge` (application source) | **no remote configured** — not published anywhere | source, security docs, dist |
 
@@ -226,14 +261,16 @@ to end from the public download back to the local artifact.
 
 ---
 
-## 7. Open actions (none performed here)
+## 7. Open actions
 
-1. **P1** — decide: fix-forward the five path lines, rewrite history + force-push, or
-   accept.
+1. **P1** — fix-forward **done** (2026-10-25, 29 occurrences in 6 files removed from the
+   working tree; §2). Still open: the strings sit in the pushed history until a
+   `git filter-repo` rewrite + force-push, which remains optional and unperformed.
 2. **S1** — migrate hosting so the committed `_headers` policy takes effect
    (`SECURITY-HARDENING.md` §7).
 3. **S3** — add `security.txt` once a contact address exists.
-4. **D1** — consider `next@16.4.3` (framework patch) with a rebuild + `crawl.js` run;
-   dev-only majors (`typescript@7`, `@types/node@26`) are optional and disruptive.
+4. **D1** — `next@16.4.3` **done** (2026-10-25, full re-verification in §2 D1). Still
+   open and deliberately untouched: `react` 19.2.0 → 19.3.1 (runtime), and the dev-only
+   majors `typescript@7` / `@types/node@26` (optional and disruptive).
 5. Re-hash the two large public artifacts if byte-level confirmation of all three is
    wanted (§3.1).

@@ -1,6 +1,6 @@
 # TESTING REPORT — Irfan PDF official website
 
-**Subject:** `irfan-pdf-website` (Next.js 16.4.2 static export) and the Irfan PDF 1.7.0 desktop application
+**Subject:** `irfan-pdf-website` (Next.js 16.4.3 static export) and the Irfan PDF 1.7.0 desktop application
 **Website tests executed:** 2026-10-16 → 2026-10-17, final pass 2026-10-22; site assistant added and tested 2026-10-23 (local machine, static export served over HTTP)
 **Application verification executed:** 2026-10-16
 **Product verification date used everywhere on the site:** 2026-10-16

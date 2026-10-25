@@ -84,12 +84,13 @@ Notes:
    It writes **two tiers** — a catch-all fallback rule plus one strict per-page rule
    carrying only that page's hashes — because Cloudflare caps every `_headers` line at
    2,000 chars and the single union policy was 2,516 (the build fails if either that
-   limit or the 100-rule limit would be exceeded). **GitHub Pages ignores `_headers`**,
-   so the live site does not receive these headers yet; see
-   [`docs/SECURITY-HARDENING.md`](docs/SECURITY-HARDENING.md) for the measured live
-   headers and browser verification (0 CSP violations), and
+   limit or the 100-rule limit would be exceeded). The policy is **live and verified at
+   `https://irfanpdf.pages.dev`** (Cloudflare Pages, deployed and checked 2026-10-25);
+   **GitHub Pages ignores `_headers`**, so the legacy `irfanpdf.github.io` URL still
+   serves without them. See [`docs/SECURITY-HARDENING.md`](docs/SECURITY-HARDENING.md)
+   for the measured headers and browser verification (0 CSP violations), and
    [`docs/CLOUDFLARE-PAGES-MIGRATION.md`](docs/CLOUDFLARE-PAGES-MIGRATION.md) for the
-   prepared, not-yet-performed cutover.
+   deployment record and rollback.
 
 ## Testing this site
 
@@ -169,5 +170,5 @@ component inventory.
 | Component architecture | `docs/COMPONENT-ARCHITECTURE.md` |
 | Security hardening (headers, CSP, verification) | `docs/SECURITY-HARDENING.md` |
 | Full-site analysis (2026-10-25: security, deps, integrity, exposure) | `docs/WEBSITE-ANALYSIS.md` |
-| Cloudflare Pages migration runbook (prepared, not performed) | `docs/CLOUDFLARE-PAGES-MIGRATION.md` |
+| Cloudflare Pages migration record (performed 2026-10-25, live at `irfanpdf.pages.dev`) | `docs/CLOUDFLARE-PAGES-MIGRATION.md` |
 | Build & deployment instructions | this file |

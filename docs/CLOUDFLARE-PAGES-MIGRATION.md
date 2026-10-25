@@ -1,14 +1,17 @@
 # Cloudflare Pages migration — runbook for the security headers
 
-**Status: PREPARED, NOT PERFORMED (2026-10-25).** Everything below has been built and
-verified locally; the only thing missing is a Cloudflare account, which only you can
-create. Nothing in this repository has been pushed or deployed.
+**Status: PERFORMED 2026-10-25.** The site is live at **`https://irfanpdf.pages.dev`**
+with the full header policy, verified end to end (results in §4). The steps below are
+what was actually done, in order, with the values that were used — kept as the record of
+the deployment and the reference for the next one (rollback, re-create, or a second
+project).
 
-**Why:** the site is served by GitHub Pages, which cannot send custom response headers —
-so the browser-verified policy in [`SECURITY-HARDENING.md`](SECURITY-HARDENING.md) is
-deployed but inert (finding **S1** in [`WEBSITE-ANALYSIS.md`](WEBSITE-ANALYSIS.md)). The
-chosen path is **Cloudflare Pages with no custom domain** (decision, 2026-10-25), because
-you don't own a domain and `*.github.io` cannot be proxied through Cloudflare.
+**Why it was needed:** the site is served by GitHub Pages, which cannot send custom
+response headers — so the browser-verified policy in
+[`SECURITY-HARDENING.md`](SECURITY-HARDENING.md) was deployed but inert (finding **S1**
+in [`WEBSITE-ANALYSIS.md`](WEBSITE-ANALYSIS.md)). The chosen path is **Cloudflare Pages
+with no custom domain** (decision, 2026-10-25), because you don't own a domain and
+`*.github.io` cannot be proxied through Cloudflare.
 
 ---
 
@@ -45,33 +48,49 @@ would drop.
 
 ---
 
-## 2. The steps (in order)
+## 2. The steps (in order) — all performed 2026-10-25
 
-### 2.1 Create the account — *you*
+### 2.1 Create the account — *done*
 
-Free Cloudflare account with an email you control. I cannot create this, and it is the
-only step blocked on a credential.
+A free account already existed by the time this ran (session: `[previous username redacted]@[personal email redacted]`).
+The one step that genuinely could not be automated was **GitHub's OAuth sign-in** when
+Cloudflare asked to connect the repository — that required the `irfanpdf` account's
+credentials and was completed by hand in the browser.
 
-### 2.2 Create the Pages project — *you, ~3 minutes*
+### 2.2 Create the Pages project — *done via the dashboard*
 
-Dashboard → **Workers & Pages** → **Create** → **Pages** tab → **Connect to Git** →
-select `irfanpdf/irfanpdf.github.io` (or upload `out/` directly with `wrangler pages deploy out`).
+Path actually taken (Cloudflare's dashboard now buries Pages behind the newer
+Workers+assets flow):
 
-| Setting | Value |
+*Workers & Pages* → **Create application** → **"Continue to Pages"** (legacy Pages
+workflow — the one that reads `_headers`) → **Import an existing Git repository** →
+**Connect GitHub** (OAuth, hand-completed) → select **`irfanpdf/irfanpdf.github.io`** →
+**Begin setup**.
+
+| Setting | Value used |
 |---|---|
+| Project name | `irfanpdf` → **`irfanpdf.pages.dev`** |
+| Production branch | `main` |
 | Build command | `npm run build` (runs `next build && flatten-rsc && gen-headers`) |
 | Build output directory | `out` |
-| Root directory | `/` (repo root) |
-| Node version | set env **`NODE_VERSION` = `24`** — the repo is tested with Node 24.20.0 |
+| Root directory | blank (repo root) |
+| Framework preset | `None` |
+| Node version | env **`NODE_VERSION` = `24`** → Cloudflare installed `node-v24.22.1-linux-x64` |
 
-### 2.3 Environment variables — *build-time, required*
+### 2.3 Environment variables — *set before the first deploy, as required*
 
-Set for **Production** (and Preview) in the project's **Settings → Environment variables**:
+Entered in the create-project form (they live under **Settings → Environment
+variables** afterwards):
 
-| Name | Value | Why it matters |
+| Name | Value used | Why it matters |
 |---|---|---|
-| `NEXT_PUBLIC_SITE_URL` | `https://<project>.pages.dev` | Without it the export deliberately omits canonical/OG URLs and emits a 110-byte empty sitemap (measured: local 125,835 B vs live 126,862 B HTML). The live site gets these from the GitHub Actions `SITE_URL` variable — Cloudflare has its own copy to maintain. |
+| `NODE_VERSION` | `24` | repo is tested on Node 24 (24.20.0 local; Cloudflare used 24.22.1) |
+| `NEXT_PUBLIC_SITE_URL` | `https://irfanpdf.pages.dev` | Without it the export deliberately omits canonical/OG URLs and emits a 110-byte empty sitemap. The GitHub Pages build gets its equivalent from the Actions `SITE_URL` variable — Cloudflare has its own copy to maintain. |
 | `NEXT_PUBLIC_DOWNLOAD_BASE_URL` | `https://github.com/irfanpdf/irfanpdf-releases/releases/download/v1.7.0` | Without it the download page shows "Download link not configured" instead of the three working links. |
+
+Verified in the deployed HTML afterwards: canonical + `og:url` =
+`https://irfanpdf.pages.dev/`, sitemap 2,929 B with `pages.dev` locations, all three
+download hrefs pointing at the `v1.7.0` release assets, "not configured" absent.
 
 `_headers` in `out/` is picked up automatically — **no** extra configuration, and (because
 the site is a pure static export with no Pages Functions) there is no exception that would
@@ -79,32 +98,44 @@ bypass it.
 
 ### 2.4 The decision only you can make: what happens to `irfanpdf.github.io`
 
-The repo name is the **organization's root Pages site**; it cannot be renamed without
-losing that namespace. Options:
+**Decision taken: run both.** GitHub Pages keeps serving the old URL (header-less, so old
+links never break); Cloudflare serves `irfanpdf.pages.dev` with the headers, and
+`NEXT_PUBLIC_SITE_URL` points canonical/OG/sitemap at the new URL so search engines
+consolidate there. Verified after the cutover: `irfanpdf.github.io` → 200,
+`Server: GitHub.com`, no CSP.
+
+**Measured side-effect, not yet fixed:** the GitHub Pages build has its own
+`SITE_URL` repository variable (still `https://irfanpdf.github.io`), so **each host
+declares itself canonical** — `github.io` → `github.io`, `pages.dev` → `pages.dev`.
+Engines therefore see two self-canonical pages rather than consolidating on the new URL.
+To make "run both" do what it promises, change the GitHub Actions repository variable
+`SITE_URL` to `https://irfanpdf.pages.dev` (Settings → Secrets and variables → Actions →
+Variables) and let the workflow rebuild — the old host's canonical then points at the new
+one. Deliberately **not** done here: it changes what the other host publishes, so it is
+yours to approve.
+
+The alternatives, for the record:
 
 | Option | Effect |
 |---|---|
-| **Run both** (recommended) | GitHub Pages keeps serving the old URL header-less; Cloudflare serves `*.pages.dev` with headers. Set `NEXT_PUBLIC_SITE_URL` to the Pages URL so canonical/OG/sitemap all point there — search engines consolidate to the new URL while old links keep working. |
+| **Run both** *(chosen)* | Old URL keeps working header-less; new URL carries the policy; canonical/OG/sitemap point at `pages.dev`. |
 | **Disable GitHub Pages** after cutover | Old URL starts returning 404. Anywhere the old URL is written (README badges, third-party links, search index) breaks. |
 | **Don't migrate** | S1 stays open forever; no headers. |
 
-**Not decided here.** This is a content/SEO call, not a security one.
+Revisit this whenever the SEO trade-off changes — it is a content call, not a security one.
 
-### 2.5 Verify after the first deploy — *me, or you with these commands*
+### 2.5 Verify after the first deploy — *done, results in §4*
 
 ```powershell
-node scripts/check-live-headers.mjs https://<project>.pages.dev   # must end: OVERALL: PASS
-node crawl.js https://<project>.pages.dev                         # must end: OVERALL: PASS
+node scripts/check-live-headers.mjs https://irfanpdf.pages.dev   # ended: OVERALL: PASS
+node crawl.js https://irfanpdf.pages.dev                         # ended: OVERALL: PASS
 ```
 
-Then load `/`, `/download/`, `/docs/` in a browser and read the console: **0 "Content
-Security Policy" messages**. The checker asserts, per route: every required header
+Plus a browser pass: **0 "Content Security Policy" messages** on 7 routes, theme toggle,
+assistant and SPA navigation working. The checker asserts, per route: every required header
 present, `nosniff`/`DENY`/`Referrer-Policy` values correct, the **strict** tier (with
 `sha256-` hashes) on real routes, the **catch-all** tier on an unmatched URL, a real 404
 for unknown paths, and that `/_headers` itself is not downloadable.
-
-It already passes against the local hardened server: **OVERALL: PASS** (6 routes + unmatched
-URL + `/_headers`), crawl **347 assets / 0 failed**, browser **0 violations** on 7 routes.
 
 ### 2.6 Rollback — zero risk
 
@@ -123,3 +154,39 @@ being the only origin.
 - **Custom domain (optional):** ~$7–15/yr, then the site gets a permanent name of its own
   and `includeSubDomains` HSTS becomes meaningful.
 - **S3** (`security.txt`) still needs a disclosure contact — unrelated to hosting.
+- **`irfanpdf.github.io`'s fate** (§2.4): "run both" is in force; disabling GitHub Pages
+  remains an SEO decision.
+- **Conflicting canonicals** (§2.4): both hosts currently claim themselves canonical.
+  Fix = change the GitHub Actions `SITE_URL` variable to `https://irfanpdf.pages.dev`
+  and let the workflow rebuild. Not done — it changes what the old host publishes.
+- **Maintenance:** Cloudflare rebuilds on every push to `main`, so `gen-headers` re-runs
+  there each time — no manual hash work. The `NEXT_PUBLIC_*` env vars are Cloudflare's own
+  copy; if the GitHub Actions `SITE_URL`/`DOWNLOAD_BASE_URL` variables ever change, change
+  both.
+
+---
+
+## 4. Results of the first deploy (2026-10-25)
+
+| Evidence | Result |
+|---|---|
+| Deployment | **Success** — "Your project is deployed to Region: Earth", built from commit `c743f96` |
+| Cloudflare's build log (the line that matters) | `gen-headers: 58 rules (1 catch-all + 57 strict per-page) / limit 100; longest line 572 chars / limit 2000` — the two-tier file survived the host's own builder; the pre-fix 2,516-char line would have been dropped |
+| Node | `NODE_VERSION=24` honoured → `node-v24.22.1-linux-x64` |
+| `check-live-headers.mjs https://irfanpdf.pages.dev` | **OVERALL: PASS** |
+| `crawl.js https://irfanpdf.pages.dev` | **OVERALL: PASS** |
+| Browser, 7 routes | **0 CSP violations / 0 console errors**; theme toggle, assistant, SPA nav work |
+| Headers on `/` | `Server: cloudflare` + `CF-RAY`; CSP (both tiers, comma-joined), `nosniff`, `DENY`, `Referrer-Policy`, `Permissions-Policy`, COOP, CORP, `X-Permitted-Cross-Domain-Policies`, HSTS |
+| Env vars | canonical/`og:url` = `pages.dev`, sitemap 2,929 B, three working download links |
+| `irfanpdf.github.io` | still 200 / `Server: GitHub.com` / no CSP ("run both") |
+
+**Measured quirk, recorded rather than smoothed over:** the Cloudflare (Linux) build
+hashed **80 inline scripts → 21 hashes** (longest line 572) where the local (Windows)
+build produced **99 → 40** (longest line 842). Cause established by diffing the HTML:
+Windows `next build` emits the RSC payload as several `self.__next_f.push(...)` scripts,
+Linux emits the same bytes as one large script — same content, different chunking. Safe
+by construction because `gen-headers` hashes the HTML from its own build; **do not copy an
+`_headers` file between the two builds.** Full write-up: `SECURITY-HARDENING.md` §5.5.
+
+**Also observed:** `Access-Control-Allow-Origin: *` is present on `pages.dev` as well,
+although our `_headers` never declares it — host default, not ours (finding S2).

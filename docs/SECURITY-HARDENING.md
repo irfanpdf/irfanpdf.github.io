@@ -214,11 +214,49 @@ identical to the on-disk bytes), a direct image load succeeded, and **9 subseque
 controlled page loads produced none**. It is recorded here rather than dropped, but it
 has not been reproduced outside the restart window and does not involve the headers.
 
+### 5.5 Live verification after the Cloudflare Pages cutover (2026-10-25)
+
+The migration in §7 was performed: the site now deploys to **`https://irfanpdf.pages.dev`**
+from `irfanpdf/irfanpdf.github.io` (project `irfanpdf`, production branch `main`, built by
+Cloudflare from commit `c743f96`). Everything below was measured against the **production
+URL**, not localhost.
+
+| Check | Result |
+|---|---|
+| Cloudflare's own build log | `gen-headers: 58 rules (1 catch-all + 57 strict per-page) / limit 100; longest line 572 chars / limit 2000` — the two-tier file survived the host's limits on the host's own builder |
+| Build environment | `NODE_VERSION=24` honoured (Cloudflare installed `node-v24.22.1-linux-x64`) |
+| `node scripts/check-live-headers.mjs https://irfanpdf.pages.dev` | **OVERALL: PASS** — all required headers on 6 routes, strict tier (`sha256-`) on real routes, 345-char catch-all tier + 404 on an unmatched URL, `/_headers` → 404 not served |
+| Response headers on `/` | `Server: cloudflare`, `CF-RAY` present; CSP (both tiers in one comma-joined value), `nosniff`, `DENY`, `Referrer-Policy`, `Permissions-Policy`, COOP, CORP, `X-Permitted-Cross-Domain-Policies`, HSTS `includeSubDomains` |
+| Browser, 7 real routes | **0 CSP violations / 0 console errors**; unmatched URL shows only the expected 404 |
+| Interactivity under the live policy | theme toggle (dark → light, `localStorage` updated), site assistant opens with its input, SPA navigation `/` → `/features/` — all working, 0 errors |
+| `node crawl.js https://irfanpdf.pages.dev` | **OVERALL: PASS** |
+| Env vars reached the build | canonical + `og:url` = `https://irfanpdf.pages.dev/`, sitemap 2,929 B with `pages.dev` locations, all three download links resolve to the `v1.7.0` release assets (no "not configured") |
+| `irfanpdf.github.io` (the "run both" decision) | still **200 / `Server: GitHub.com`**, still header-less — old links keep working; only the new URL carries the policy |
+
+**One measured difference between the local and Cloudflare builds, explained rather than
+glossed over:** locally `gen-headers` hashed **99 inline scripts → 40 unique hashes**
+(longest line 842); Cloudflare's Linux build produced **80 → 21** (longest line 572). The
+cause was found by diffing the actual HTML, not guessed: Windows `next build` emits the
+RSC payload as several separate `self.__next_f.push(...)` inline scripts (6 local-only
+scripts on `/features/`), while the Linux build emits the **same payload as one 100,575-char
+script** (1 live-only script) — the payload starts with identical bytes
+(`1:"$Sreact.fragment`, the same `/_next/static/chunks/0umf92h1sb77c.js` chunk names), so
+it is the same content, chunked differently by platform. This is safe **by construction**:
+`gen-headers` runs inside the same build that produced the HTML it hashes, so each side is
+internally consistent — which is exactly what the 0-violation browser runs on both
+localhost and `pages.dev` demonstrate. A cross-copying the local `_headers` onto the
+Cloudflare build (or vice versa) would **not** be safe: the hashes would not match the
+served HTML.
+
 ## 6. Limitations and residual risk (read before calling this "done")
 
-1. **None of this is live yet.** GitHub Pages cannot send these headers. Until the
-   migration in §7 happens, visitors still receive the header set in §1. The
-   `<meta>` fallback was deliberately **not** added (decision recorded in §2).
+1. **Two hosts serve two different realities (updated 2026-10-25).** The policy **is
+   live** at `https://irfanpdf.pages.dev` (verified in §5.5). The legacy
+   `https://irfanpdf.github.io` — kept running under the "run both" decision so old
+   links never break — **still cannot send these headers** and serves visitors the header
+   set in §1. Anyone on the old URL gets no CSP. The `<meta>` fallback was deliberately
+   **not** added (decision recorded in §2). Retiring the old URL is an SEO/link decision,
+   not a security one, and remains yours.
 2. **`style-src-attr 'unsafe-inline'` is a real relaxation.** An attacker who already
    had an HTML-injection point could attach style attributes (CSS-basedUI redressing,
    and in narrow cases attribute-selector data exfiltration). It does **not** allow
@@ -239,8 +277,12 @@ has not been reproduced outside the restart window and does not involve the head
    reported **0 vulnerabilities** (production and dev), but a dependency audit is not a
    security assessment. A CSP is defence-in-depth; a clean console does **not** prove the
    absence of vulnerabilities.
-7. **`Access-Control-Allow-Origin: *`** on the live site is GitHub Pages' own default and
-   cannot be removed from this repository; it disappears when the host changes.
+7. **`Access-Control-Allow-Origin: *`** was expected to disappear with the host change
+   (it is GitHub Pages' default). Measured after the cutover: it is **still present on
+   `irfanpdf.pages.dev`** too, and it does **not** come from our `_headers` (the file
+   declares no `Access-Control-Allow-Origin`). So it is the new host's own default as
+   well, and — like finding S2 — it is not configurable from this repository. Recorded
+   as observed; the exact Cloudflare-side mechanism was not verified.
 8. **Hosting caveat:** `_headers` is understood by **Cloudflare Pages and Netlify**.
    **Vercel does not read `_headers`** — a move there would need an equivalent
    `vercel.json`, which has not been written.
@@ -255,30 +297,42 @@ has not been reproduced outside the restart window and does not involve the head
 
 ## 7. Moving to a host that can send these headers (the chosen path)
 
-**Decision 2026-10-25: Cloudflare Pages (option A — no custom domain).** Full, step-by-step
-runbook, including the env vars, the `_headers` limits this file now respects, and the
-still-open question of what happens to `irfanpdf.github.io`, is in
+**PERFORMED 2026-10-25.** The site now deploys to **Cloudflare Pages (option A — no
+custom domain)** at `https://irfanpdf.pages.dev`, and the policy is live and verified —
+the evidence is in §5.5. The full runbook, including what was clicked in the dashboard,
+the project settings, and the rollback, is in
 [`CLOUDFLARE-PAGES-MIGRATION.md`](CLOUDFLARE-PAGES-MIGRATION.md). Summary:
 
-1. **Not performed** — it needs a Cloudflare account that does not exist yet.
-2. **Cloudflare Pages** reads `out/_headers` natively: build command `npm run build`,
-   output directory `out`, Node 20+. The `_headers` file now fits the host's documented
-   limits (§4.1), so the policy that was verified locally is the policy visitors get.
+1. **Done.** Project `irfanpdf` → `irfanpdf.pages.dev`, connected to
+   `irfanpdf/irfanpdf.github.io` (production branch `main`), build command
+   `npm run build`, output `out`, env vars `NODE_VERSION=24`,
+   `NEXT_PUBLIC_SITE_URL=https://irfanpdf.pages.dev`,
+   `NEXT_PUBLIC_DOWNLOAD_BASE_URL=…/v1.7.0` — set **before** the first deploy, as the
+   runbook requires. Cloudflare's build log shows the generator's limits line, i.e. the
+   two-tier `_headers` survived the host's own builder.
+2. **Cloudflare Pages** reads `out/_headers` natively. The `_headers` file fits the
+   host's documented limits (§4.1), so the policy that was verified locally is the
+   policy visitors get — confirmed by measurement, not inference (§5.5).
 3. **No custom domain is required for the headers** — this corrects an earlier version of
    this section, which said a domain was needed. That is only true for *proxying*
    `github.io` through Cloudflare (Transform Rules need a zone you own). On Pages,
    `_headers` works on the free `*.pages.dev` name. A domain remains optional, and would
    be needed later only to close residual item §6.9.
-4. **GitHub Pages workflow** (`.github/workflows/deploy.yml`) stays untouched during the
-   transition; it keeps serving the header-less version at the old URL. The SEO
-   consequences of running both are the one decision this repo cannot make — see the
-   migration doc.
-5. **Verify after cutover** with the checker that already exists:
+4. **GitHub Pages workflow** (`.github/workflows/deploy.yml`) stays untouched; under the
+   "run both" decision it keeps serving the header-less version at the old URL, so old
+   links never break (verified: `irfanpdf.github.io` → 200, `Server: GitHub.com`, no CSP).
+   The SEO consequences of running both remain the one decision this repo cannot make —
+   see the migration doc. **One measured wrinkle:** each host currently declares *itself*
+   canonical (the Actions build still has `SITE_URL = github.io`), so engines are not
+   consolidating on the new URL yet; the fix is a one-variable change in the Actions
+   settings, recorded as open in the migration doc §3.
+5. **Verification after cutover** (all run against the live URL, 2026-10-25 — §5.5):
    ```powershell
-   node scripts/check-live-headers.mjs https://<your-pages-domain>   # must end OVERALL: PASS
-   node crawl.js https://<your-pages-domain>                         # route/link/asset smoke test
+   node scripts/check-live-headers.mjs https://irfanpdf.pages.dev   # ended OVERALL: PASS
+   node crawl.js https://irfanpdf.pages.dev                         # ended OVERALL: PASS
    ```
-   plus a browser console read on `/`, `/download/`, `/docs/` (0 CSP violations).
+   plus a browser console read on 7 routes: 0 CSP violations, theme toggle, assistant and
+   SPA navigation all working.
 
 ## 8. How to re-run this verification
 
@@ -287,13 +341,22 @@ npm run build                       # regenerates out/_headers (fails closed if 
 node scripts/serve-headers.mjs      # serves out/ with the real headers on :8124
 # then load http://127.0.0.1:8124/ in a browser and read the console:
 #   0 "Content Security Policy" messages = policy and HTML still agree
+
+# against the production site (after any push that Cloudflare rebuilds):
+node scripts/check-live-headers.mjs https://irfanpdf.pages.dev   # must end OVERALL: PASS
+node crawl.js https://irfanpdf.pages.dev                         # must end OVERALL: PASS
 ```
 
 If a future build legitimately introduces a new inline script, `gen-headers` picks it up
 automatically — no manual hash maintenance. If it cannot, the build fails instead of
 shipping a policy that would break the site.
 
+> **Platform note:** the local (Windows) and Cloudflare (Linux) builds chunk the RSC
+> payload differently, so their hash sets are **not** interchangeable (measured and
+> explained in §5.5). Always verify against the host that will serve the bytes.
+
 ---
 
-**Status:** source hardened and locally verified · **live site unchanged** ·
-**host migration outstanding** (§7) · no 100%-security claim implied (§6).
+**Status:** source hardened · **policy LIVE at `https://irfanpdf.pages.dev`** (verified
+2026-10-25, §5.5) · legacy `irfanpdf.github.io` still header-less by the "run both"
+decision (§6.1) · no 100%-security claim implied (§6).

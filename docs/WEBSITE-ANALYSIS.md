@@ -19,12 +19,12 @@ remediation status noted in each section. Nothing was deployed; nothing was push
 | Secrets / credentials in repo or history | ✅ **none found** (only empty `.env.example`, and only that file was ever added) |
 | Personal data in repo | ✅ **fixed forward 2026-10-25** — 29 username occurrences removed from the working tree; the pushed history still has them — see **P1** |
 | Dependency vulnerabilities (`npm audit`) | ✅ **0 vulnerabilities** (production *and* dev); `next` now at 16.4.3 — 4 packages still behind, see **D1** |
-| Live security headers | ❌ **still absent** (known; policy + migration runbook prepared 2026-10-25, blocked on a Cloudflare account) — **S1** |
+| Live security headers | ✅ **live at `https://irfanpdf.pages.dev`** since 2026-10-25 (all required headers + hashed CSP, verified in a browser) — **S1 fixed**; legacy `irfanpdf.github.io` still header-less by the "run both" decision |
 | Published download hashes vs real files | ✅ **3/3 match**; the publicly downloadable file hashes to the site's published value |
 | Live download links | ✅ resolve **200** with exactly the published byte sizes |
 | Tracking / cookies / third-party requests | ✅ **none** — no cookies on 3 probed routes, 0 external subresources, 0 mixed content |
 | Source/config exposure on the host | ✅ `/.git`, `/package.json`, `/.env`, `/README.md`, `/docs/*` all **404** |
-| SEO metadata | ✅ canonical, 9 Open Graph tags, `index,follow`, sitemap with 17 URLs, robots points at it |
+| SEO metadata | ⚠️ canonical, 9 Open Graph tags, `index,follow`, sitemap with 17 URLs, robots points at it — **but with both hosts live each declares *itself* canonical** (`github.io` → `github.io`, `pages.dev` → `pages.dev`), so engines see two competing self-canonical pages instead of consolidating on the new URL; see **S1 residual** |
 | 404 behaviour | ✅ unknown route returns **404** |
 | Responsible-disclosure channel | ❌ **none** (`/.well-known/security.txt` → 404) — **S3** |
 
@@ -76,34 +76,51 @@ force-push would remove them; deliberately not done — it rewrites every commit
 public repo and any existing clone keeps the old copy). History rewrite remains a
 recorded open option (§7 item 1).
 
-### S1 — MEDIUM (security headers): the live site still has no CSP / nosniff / clickjacking protection
+### S1 — MEDIUM (security headers): ~~the live site still has no CSP~~ → **FIXED, verified live 2026-10-25**
 
-Re-measured today on three routes (`/`, `/download/`, `/docs/`): `Content-Security-
-Policy`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`,
-`Permissions-Policy` **all absent**; `Set-Cookie` absent; GitHub adds
-`Strict-Transport-Security`; `Access-Control-Allow-Origin: *` is GitHub's default.
+**As found (2026-10-25, on GitHub Pages):** re-measured on three routes
+(`/`, `/download/`, `/docs/`): `Content-Security-Policy`, `X-Content-Type-Options`,
+`X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` **all absent**; `Set-Cookie`
+absent; GitHub adds `Strict-Transport-Security`; `Access-Control-Allow-Origin: *` is
+GitHub's default.
 
-The complete, browser-verified replacement policy already exists in this repository
-(commit `8f60490`, [`SECURITY-HARDENING.md`](SECURITY-HARDENING.md)). GitHub Pages
-cannot send it — **the outstanding action is the host migration.**
+**Remediation, completed the same day:** the browser-verified policy from
+[`SECURITY-HARDENING.md`](SECURITY-HARDENING.md) now ships. Preparing the move exposed a
+blocker that would have silently defeated it — Cloudflare caps every `_headers` line at
+**2,000 chars**, and the policy as originally written was **2,516** (40 hashes; only 29
+fit) — so `gen-headers.mjs` was rewritten to emit a catch-all tier plus one strict
+per-page tier, with the build failing if either the line or rule-count limit would be
+exceeded, and the comma-join intersection it relies on was proven in a real browser first.
 
-**Prep done 2026-10-25 (still not live):** the chosen path is Cloudflare Pages with no
-custom domain, and preparing it exposed a blocker that would have silently defeated the
-migration — Cloudflare caps every `_headers` line at **2,000 chars**, and the policy as
-originally written was **2,516** (40 hashes; only 29 fit). `gen-headers.mjs` now emits a
-catch-all tier plus one strict per-page tier (longest line **842**, 58 rules / limit 100,
-build fails if either limit is exceeded), the comma-join intersection it relies on was
-verified in a real browser, and a new `scripts/check-live-headers.mjs` asserts the result
-on any URL — it passes locally (**OVERALL: PASS**, 6 routes + unmatched URL + `/_headers`
-not served), as do the crawl (347 assets, 0 failed) and a browser pass (0 CSP violations
-on 7 routes). Remaining: create the Cloudflare account and deploy — full runbook in
-[`CLOUDFLARE-PAGES-MIGRATION.md`](CLOUDFLARE-PAGES-MIGRATION.md), including the
-still-open decision about what happens to `irfanpdf.github.io`.
+**Live proof (production URL, not localhost):**
+
+- Cloudflare's own build log carries the generator's limits line
+  (`58 rules … longest line 572 chars / limit 2000`);
+- `node scripts/check-live-headers.mjs https://irfanpdf.pages.dev` → **OVERALL: PASS**
+  (6 routes with every required header + strict `sha256-` tier, catch-all tier + 404 on an
+  unmatched URL, `/_headers` not downloadable);
+- browser pass on 7 routes → **0 CSP violations / 0 console errors**; theme toggle, site
+  assistant and SPA navigation all work under the live policy;
+- `node crawl.js https://irfanpdf.pages.dev` → **PASS**; canonical/OG/sitemap and the
+  three download links all picked up the build-time env vars.
+
+**Residual:** `irfanpdf.github.io` keeps serving the old header-less copy under the "run
+both" decision (so old links never break) — anyone on that URL still gets no CSP, and the
+`<meta>` fallback remains deliberately not added. **One SEO side-effect measured after the
+cutover:** each host now declares *itself* canonical (`github.io` → `github.io`,
+`pages.dev` → `pages.dev`), so search engines are not consolidating onto the new URL as
+the "run both" plan assumed. Fixing it means changing the GitHub Actions `SITE_URL`
+repository variable to `https://irfanpdf.pages.dev` (so the old host points its canonical
+at the new one) — a one-line dashboard change that has **not** been made. Details and the
+measured Windows/Linux build difference: `SECURITY-HARDENING.md` §5.5, §6.1.
 
 ### S2 — LOW: `Access-Control-Allow-Origin: *` on every response
 
 GitHub Pages serves the site's assets to any origin and this cannot be configured away
-from the repository. It disappears with the host move.
+from the repository. **Re-measured after the host move: still present on
+`irfanpdf.pages.dev`**, and it is not something our `_headers` declares — so it appears to
+be the new host's default as well. Not fixed; recorded as observed (the exact
+Cloudflare-side mechanism was not verified).
 
 ### S3 — LOW: no responsible-disclosure contact
 
@@ -140,7 +157,7 @@ dev-only majors deliberately left alone).** Re-verified after the update:
 | `npm install next@16.4.3` | ✅ `package.json` → `^16.4.3`, lockfile → 16.4.3, 0 vulnerabilities |
 | `npm run typecheck` | ✅ exit 0, no errors |
 | `npm run test:assistant` | ✅ **206 passed, 0 failed** |
-| `npm run build` (incl. `gen-headers`) | ✅ exit 0 — 20 HTML files, 99 inline scripts → **40 unique SHA-256 hashes**, `out\_headers` rewritten (CSP 2489 chars) |
+| `npm run build` (incl. `gen-headers`) | ✅ exit 0 — 20 HTML files, 99 inline scripts → **40 unique SHA-256 hashes**, `out/_headers` rewritten (CSP header value 2489 chars — the *pre-two-tier* single policy; the file was restructured into catch-all + per-page tiers later the same day because of Cloudflare's 2,000-char line limit, see **S1**) |
 | Headers on 6 routes (`/`, `/download/`, `/docs/`, `/features/`, `/security/`, `/404.html`) | ✅ all 200 with CSP + `nosniff` + `X-Frame-Options: DENY` + `Referrer-Policy` + `Permissions-Policy` + HSTS |
 | Browser console under that CSP — 5 routes | ✅ **0 errors / 0 CSP violations** |
 | SPA navigation (`Explore all features` → `/features/`) | ✅ client-side route change, 0 errors |
@@ -278,12 +295,14 @@ to end from the public download back to the local artifact.
 1. **P1** — fix-forward **done** (2026-10-25, 29 occurrences in 6 files removed from the
    working tree; §2). Still open: the strings sit in the pushed history until a
    `git filter-repo` rewrite + force-push, which remains optional and unperformed.
-2. **S1** — migrate hosting so the committed `_headers` policy takes effect. **Prepared
-   2026-10-25** (two-tier `_headers` that fits Cloudflare's 2,000-char / 100-rule limits,
-   plus `scripts/check-live-headers.mjs`, verified locally end to end); **blocked on
-   creating a Cloudflare account**, and the `irfanpdf.github.io` URL/SEO decision is yours.
-   Runbook: [`CLOUDFLARE-PAGES-MIGRATION.md`](CLOUDFLARE-PAGES-MIGRATION.md);
-   background: `SECURITY-HARDENING.md` §4.1 and §7.
+2. **S1** — migrate hosting so the committed `_headers` policy takes effect.
+   **DONE 2026-10-25**: deployed to Cloudflare Pages (`https://irfanpdf.pages.dev`) and
+   verified live end to end (build-log limits line, `check-live-headers` OVERALL: PASS,
+   crawl PASS, browser 0 CSP violations on 7 routes) — evidence in
+   `SECURITY-HARDENING.md` §5.5, steps in
+   [`CLOUDFLARE-PAGES-MIGRATION.md`](CLOUDFLARE-PAGES-MIGRATION.md). Deliberately left
+   running alongside `irfanpdf.github.io` ("run both" decision), so the old URL stays
+   header-less until you decide its SEO fate.
 3. **S3** — add `security.txt` once a contact address exists.
 4. **D1** — `next@16.4.3` **done** (2026-10-25, full re-verification in §2 D1). Still
    open and deliberately untouched: `react` 19.2.0 → 19.3.1 (runtime), and the dev-only

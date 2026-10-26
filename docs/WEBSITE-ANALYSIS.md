@@ -18,7 +18,7 @@ remediation status noted in each section. Nothing was deployed; nothing was push
 |---|---|
 | Secrets / credentials in repo or history | ✅ **none found** (only empty `.env.example`, and only that file was ever added) |
 | Personal data in repo | ✅ **fixed forward 2026-10-25** — 29 username occurrences removed from the working tree; the pushed history still has them — see **P1** |
-| Dependency vulnerabilities (`npm audit`) | ✅ **0 vulnerabilities** (production *and* dev); `next` now at 16.4.3 and `react`/`react-dom` at 19.3.1 — only 2 dev-only majors behind, see **D1** |
+| Dependency vulnerabilities (`npm audit`) | ✅ **0 vulnerabilities** (production *and* dev); `next` 16.4.3, `react`/`react-dom` 19.3.1, `typescript` 7.0.2, `@types/node` 26.6.5 — **no dependency is behind latest any more** (2026-10-25), see **D1** |
 | Live security headers | ✅ **live at `https://irfanpdf.pages.dev`** since 2026-10-25 (all required headers + hashed CSP, verified in a browser) — **S1 fixed**; legacy `irfanpdf.github.io` still header-less by the "run both" decision |
 | Published download hashes vs real files | ✅ **3/3 match**; the publicly downloadable file hashes to the site's published value |
 | Live download links | ✅ resolve **200** with exactly the published byte sizes |
@@ -108,7 +108,10 @@ exceeded, and the comma-join intersection it relies on was proven in a real brow
 closed in-repo — it now carries the **union of all hashes** instead of `unsafe-inline`
 when that fits the 2,000-char line, and the deployed Linux build fits (live measured
 1,463 chars / 21 hashes; checker PASS without flags; the live 404 page's inline scripts
-run under it). Windows local builds still fall back loudly by design. Full measurements:
+run under it). Windows local builds also produce the strong catch-all now — a
+post-build inline-script merge step (`scripts/merge-inline-scripts.mjs`) took the
+Windows union from 40 hashes / 2,516 chars to 20 / 1,409, so no build falls back any
+more. Full measurements:
 [`SECURITY-HARDENING.md`](SECURITY-HARDENING.md) §6 item 9.
 
 **Residual:** `irfanpdf.github.io` keeps serving the old header-less copy under the "run
@@ -198,8 +201,8 @@ npm audit             →  found 0 vulnerabilities   (re-run after the update: s
 |---|---|---|---|
 | `next` | 16.4.2 | 16.4.3 | patch behind — framework (runtime) → **updated 2026-10-25** |
 | `react` / `react-dom` | 19.2.0 | 19.3.1 | minor behind (runtime) → **updated 2026-10-25 (second pass, see below)** |
-| `typescript` | 5.9.3 | 7.0.2 | major behind (**dev only**) |
-| `@types/node` | 24.19.2 | 26.6.5 | major behind (**dev only**) |
+| `typescript` | 5.9.3 | 7.0.2 | major behind (**dev only**) → **updated 2026-10-25 (third pass, see below)** |
+| `@types/node` | 24.19.2 | 26.6.5 | major behind (**dev only**) → **updated 2026-10-25 (third pass, see below)** |
 | `tailwindcss` | 4.3.3 | current | up to date |
 
 CI installs with `npm ci`, so the lockfile is authoritative. Nothing here is urgent —
@@ -250,6 +253,17 @@ exact-pinned (no caret) as the repo already did. Re-verified end to end:
 | Browser, 8 routes on production | ✅ **0 CSP violations** (only the expected 404 on the bogus path) |
 | Theme toggle / SPA nav `/` → `/features/` / assistant reply | ✅ all working, 0 errors. *Honest note:* an earlier combined script reported the SPA link "landing on `/`" — that was the script reading the URL while the theme toggle was still re-rendering; an isolated re-test navigated correctly to `/features/` with 0 errors |
 
+**Third pass applied 2026-10-25 (the dev-only majors that the first two passes deliberately left alone): `typescript` 5.9.3 → 7.0.2 and `@types/node` 24.19.2 → 26.6.5.**
+
+| Check | Result |
+|---|---|
+| `npm install -D typescript@7.0.2 @types/node@26.6.5` | ✅ `package.json` + lockfile updated, **0 vulnerabilities** (prod + dev) |
+| `npm run typecheck` (now `tsc` 7.0.2, the native checker) | ✅ exit 0 — the TS 7 checker accepted the codebase with no new diagnostics |
+| `npm run test:assistant` | ⚠️ → ✅ **206 passed, 0 failed** — but the harness needed fixing first, honestly recorded: **typescript 7 ships no JavaScript compiler API at all** (the package root exports only `version` strings; the compiler is a native binary and even a full grep of the package finds no `transpileModule`), so the old `ts.transpileModule` loader crashed with `TypeError: Cannot read properties of undefined (reading 'CommonJS')`. `scripts/test-assistant.mjs` is now **dual-mode**: if the installed typescript still exposes the classic API it transpiles in memory exactly as before; otherwise the `.ts` files are imported as-is and **Node's built-in type stripping** removes the types, with a `module.registerHooks()` resolve hook mapping the tsconfig `@/*` alias. Still zero extra dependencies; the first mode is kept so downgrading typescript also works |
+| `npm run build` (incl. `flatten-rsc`, `merge-inline-scripts`, `gen-headers`) | ✅ exit 0 — 99 inline scripts → 60 after the merge step → **20 unique SHA-256 hashes**, 58 rules, longest line 1436 — and because the union now fits, the catch-all is emitted **strong** on Windows too (`1409 chars (strong: 20 hashes, no unsafe-inline)`), no fallback warning. Browser re-verified over 9 routes: **0 CSP violations**, theme/SPA/assistant all working |
+| Runtime impact | **none** — both packages are dev-only; `dependencies` untouched (`next` 16.4.3, `react`/`react-dom` 19.3.1), so the deployed bytes cannot change from this |
+| `@types/node` 26 vs CI's Node 20 | types are dev-only and never shipped; noted honestly: CI (`deploy.yml`) builds on **Node 20**, so the *build* behaviour of these new deps on Node 20/Linux is **verified only when this commit is pushed** — recorded in the commit, not claimed here |
+
 ---
 
 ## 3. What was verified as correct
@@ -263,13 +277,15 @@ exact-pinned (no caret) as the repo already did. Re-verified end to end:
 | Published SHA-256 for `IrfanPDF_Portable.zip` vs the real file | ✅ **MATCH** |
 | Published byte sizes vs real file sizes (115,995,494 / 155,787,006 / 7,705,955) | ✅ **3/3 exact** |
 | **Downloaded the publicly served `IrfanPDF_Portable.zip` from GitHub Releases and hashed it** | ✅ `72EAA801…BA8FD98` = the value the site publishes → the *public* artifact matches the site's claim, not just the local copy |
+| **Downloaded the two LARGE public artifacts from GitHub Releases and hashed them** | ✅ **both MATCH** (2026-10-25): `IrfanPDF_Setup_1.7.0.exe` → 115,995,494 bytes = exact, SHA-256 `C57968BA…0A7C5` = published value; `IRFAN-PDF-PROFESSIONAL.zip` → 155,787,006 bytes = exact, SHA-256 `02B95E24…97F4D9` = published value. **All 3/3 public artifacts are now byte-verified against what the site publishes** |
 | Version/date claims (`version: 1.7.0`, `releaseDate: 2026-10-11`) vs `docuforge\CHANGELOG.md` (`## 1.7.0 final build - 2026-10-11`) | ✅ match |
 | Site claim "43 of 43 suites passing" vs the application's regression gate | ✅ consistent (all 43 suites pass locally) |
 
-*Not verified:* the hashes of the two large public artifacts (110.6 MiB / 148.6 MiB) were
-not re-computed from downloads — only their HTTP `Content-Length` matched. Re-hashing
-~260 MB was not judged worth the time; a `Get-FileHash` on a downloaded copy settles it
-if wanted.
+*Previously not verified:* the hashes of the two large public artifacts (110.6 MiB /
+148.6 MiB) were only checked against their HTTP `Content-Length`. **Closed 2026-10-25:**
+both were downloaded in full from the release and SHA-256'd — sizes exact and hashes
+**MATCH** the published values (row above), so all three public artifacts are now
+byte-verified end to end.
 
 ### 3.2 Download links (live)
 
@@ -393,9 +409,11 @@ to end from the public download back to the local artifact.
 3. **S3** — add `security.txt` once a contact address exists. **DONE 2026-10-25**:
    GitHub private vulnerability reporting enabled, `security.txt` added at both
    locations, local + live verification on both hosts all passing (§2 S3).
-4. **D1** — `next@16.4.3` **done** (2026-10-25, full re-verification in §2 D1);
-   `react`/`react-dom` 19.2.0 → **19.3.1 done** (2026-10-25, second pass with its own
-   full re-verification in §2 D1). Still open and deliberately untouched: the dev-only
-   majors `typescript@7` / `@types/node@26` (optional and disruptive).
+4. **D1** — **all done 2026-10-25** (three passes, each with its own full
+   re-verification in §2 D1): `next@16.4.3`, `react`/`react-dom` 19.3.1, and the
+   dev-only majors `typescript@7.0.2` / `@types/node@26.6.5` — the last needed a
+   test-harness fix because TS 7 removed the JS compiler API (recorded in §2 D1).
+   **No dependency is behind latest any more.**
 5. Re-hash the two large public artifacts if byte-level confirmation of all three is
-   wanted (§3.1).
+   wanted (§3.1). **DONE 2026-10-25** — both downloaded and hashed: sizes exact,
+   SHA-256 **MATCH** (§3.1); all 3/3 public artifacts byte-verified.

@@ -23,8 +23,8 @@ written violated the second:
 
 | | chars | result on Cloudflare |
 |---|---|---|
-| Single `/*` CSP with the union of all 40 hashes | **2,516** | line over the limit → rule dropped → **site ships with no CSP** |
-| Hashes that fit in one line / hashes needed | **29** / **40** | can't be made to fit |
+| Single `/*` CSP with the union of all 40 hashes | **2,516** | line over the limit → rule dropped → **site ships with no CSP** (pre-merge numbers; see the same-day update below, which took Windows to 20 hashes / 1,409 chars) |
+| Hashes that fit in one line / hashes needed | **29** / **40** | can't be made to fit *as originally written* |
 
 `scripts/gen-headers.mjs` was rewritten to emit **two tiers** — a catch-all rule plus one
 strict per-page rule with that page's own 4–9 hashes (567–842 chars). A real page matches
@@ -38,21 +38,30 @@ is what would ship.
 **Same-day update (2026-10-25, commit `3f204c5`):** the catch-all's `unsafe-inline` was
 replaced by the **union of all hashes** wherever that fits the 2,000-char line — on
 Cloudflare's Linux builder it **does** (live-measured: 1,463-char line, 21 hashes), which
-closes residual §6.9 (the 404 page is hash-constrained too). On Windows builds the union
-is still 40 hashes = 2,516 chars, so they keep the fallback below, with a loud build
-warning. See `SECURITY-HARDENING.md` §6 item 9.
+closes residual §6.9 (the 404 page is hash-constrained too). Windows builds still needed
+40 hashes = 2,516 chars at that point and kept the fallback below, with a loud build
+warning.
 
-Current build output, from `npm run build` (a **Windows** build — see above):
+**Same-day update 2 (the fallback is gone locally too):** a new build step,
+`scripts/merge-inline-scripts.mjs`, joins adjacent inline scripts before `gen-headers`
+hashes them, taking the Windows export from 99 scripts / 40 hashes to 60 / **20** — so
+the local build now prints the strong line as well. See `SECURITY-HARDENING.md` §6 item
+9 for the full local verification (checker PASS with no flag, browser 0 CSP violations
+on 9 routes).
+
+Current build output, from `npm run build` (a **Windows** build):
 
 ```
-gen-headers: 58 rules (1 catch-all + 57 strict per-page) / limit 100; longest line 842 chars / limit 2000
-gen-headers: catch-all CSP = 345 chars (FALLBACK: 'unsafe-inline'); strict CSP per page = 572–842 chars
-gen-headers: WARNING — the hash union needs a 2516-char catch-all line, over Cloudflare's 2000-char limit, ...
+merge-inline-scripts: 20 HTML file(s), 99 inline script(s) -> 60 (20 run(s) merged, 39 element(s) absorbed) in 20 file(s)
+merge-inline-scripts: unique inline-script bodies after merge: 20
+gen-headers: scanned 20 HTML file(s), 60 inline executable script(s) -> 20 unique SHA-256 hash(es)
+gen-headers: 58 rules (1 catch-all + 57 strict per-page) / limit 100; longest line 1436 chars / limit 2000
+gen-headers: catch-all CSP = 1409 chars (strong: 20 hashes, no unsafe-inline); strict CSP per page = 518–518 chars
 ```
 
-On the Linux build Cloudflare runs, the same command prints
-`catch-all CSP = 1463 chars (strong: 21 hashes, no unsafe-inline)` instead — the value
-length matches the live header exactly (1,463), measured from the response, not assumed.
+On the Linux build Cloudflare runs (before that merge step existed) the same command
+printed `catch-all CSP = 1463 chars (strong: 21 hashes, no unsafe-inline)` — the value
+length matched the live header exactly (1,463), measured from the response, not assumed.
 
 The generator now **fails the build** if any line exceeds 2,000 chars or the rule count
 exceeds 100, so a future growth in page count cannot silently produce a file a real host
@@ -173,7 +182,9 @@ being the only origin.
   Worker/domain needed.** The catch-all CSP now carries the **union of all hashes**
   instead of `unsafe-inline` whenever that fits the 2,000-char line, and the deployed
   Linux build fits (live measured: 1,463-char catch-all, 21 hashes, checker PASS
-  without flags). A custom domain is therefore optional for its own sake only (below).
+  without flags). A second step the same day (`scripts/merge-inline-scripts.mjs`)
+  removed the local Windows divergence too. A custom domain is therefore optional for
+  its own sake only (below).
 - **Custom domain (optional):** ~$7–15/yr, then the site gets a permanent name of its own
   and `includeSubDomains` HSTS becomes meaningful.
 - **S3** (`security.txt`) — **DONE 2026-10-25** (GitHub private vulnerability reporting as

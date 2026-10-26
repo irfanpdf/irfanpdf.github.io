@@ -45,8 +45,9 @@ in §1 are still what visitors receive today.
 | File | Purpose |
 |---|---|
 | `scripts/gen-headers.mjs` | Post-build generator. Scans every exported `out/**/*.html`, SHA-256-hashes each **executable inline script**, and writes `out/_headers` — the header file Cloudflare Pages and Netlify read from the site root. Emits **two tiers of CSP** (see §4) and enforces the host's documented limits: **fail-closed** if it finds no HTML, cannot hash a single executable inline script, produces any line over **2,000 chars**, or exceeds **100 rules** — so a policy a real host would silently drop can never be written. |
+| `scripts/merge-inline-scripts.mjs` | Runs between `flatten-rsc` and `gen-headers`. Joins each run of **adjacent inline scripts** (whitespace-only gap, same type, no attributes other than `type`) into one `<script>` element, preserving execution order, so the export carries fewer hashes: Windows 40 → 20 unique hashes, catch-all 2,516 → **1,409 chars** (under the limit). Refuses any merge that would drop an attribute or produce `</script>` in a body (fail-closed), and leaves every other byte untouched. |
 | `scripts/serve-headers.mjs` | Zero-dependency local server that serves `out/` **with exactly the headers `_headers` declares**, applying Cloudflare's matching semantics (every matching rule applies; a repeated header has its values comma-joined; `_headers` itself is never served). |
-| `scripts/check-live-headers.mjs` | Post-deployment prober: `node scripts/check-live-headers.mjs <base-url>` asserts every required header on six routes, that a real route carries the **strict** CSP tier, that an unmatched URL still gets the **catch-all** tier **and that this tier is hash-constrained (strong mode: `sha256-` present and no `unsafe-inline` **in `script-src`** — scoped to that directive, since `style-src-attr 'unsafe-inline'` is present by design)** — the check that proves residual §6.9 closed — and that `/_headers` is not downloadable. Pass `--allow-fallback` to accept the documented `unsafe-inline` fallback deliberately (local Windows builds, whose hash union exceeds the host's line limit); without it a fallback is a **FAIL**. Exit 0 = pass. |
+| `scripts/check-live-headers.mjs` | Post-deployment prober: `node scripts/check-live-headers.mjs <base-url>` asserts every required header on six routes, that a real route carries the **strict** CSP tier, that an unmatched URL still gets the **catch-all** tier **and that this tier is hash-constrained (strong mode: `sha256-` present and no `unsafe-inline` **in `script-src`** — scoped to that directive, since `style-src-attr 'unsafe-inline'` is present by design)** — the check that proves residual §6.9 closed — and that `/_headers` is not downloadable. Pass `--allow-fallback` only as a deliberate override: since `scripts/merge-inline-scripts.mjs` joined the build, no normal build needs it (both platforms fit the line), but if a build's union ever outgrows 2,000 chars again `gen-headers` falls back and this flag is the sole, explicit way to accept that — without it a fallback is a **FAIL**. Exit 0 = pass. |
 | `package.json` | `npm run build` now runs `next build && flatten-rsc && gen-headers` — the header file is produced by the same build that produced the HTML it describes, so hashes and pages cannot drift apart. |
 
 `out/` is gitignored, so `_headers` ships as part of every build artifact, never as a
@@ -101,8 +102,8 @@ So `_headers` is now emitted as:
 
 | Rule | Carries |
 |---|---|
-| `/*` (catch-all) | all the non-CSP headers **+ the catch-all CSP**, whose `script-src` carries the **union of every hash in the export** when that fits the 2,000-char line (**strong mode** — what the deployed Linux build emits), falling back to `script-src 'self' 'unsafe-inline'` with a loud build-log warning when it does not (Windows builds: 40 hashes = 2,516-char line) — see §6 item 9. This is what an **unmatched URL** (a 404) receives; it also enforces `object-src`, `base-uri`, `form-action`, `frame-ancestors`, `default-src`, style/img/connect restrictions either way. |
-| one rule per exported page (57 rules: `/`, `/x/`, `/x`, `/x/index.html` variants) | the **strict** CSP with exactly that page's hashes (572–842 chars) |
+| `/*` (catch-all) | all the non-CSP headers **+ the catch-all CSP**, whose `script-src` carries the **union of every hash in the export** when that fits the 2,000-char line (**strong mode** — both platforms fit today: Linux ~1,463 chars pre-merge-era, Windows 1,409 chars / 20 hashes after `merge-inline-scripts`), falling back to `script-src 'self' 'unsafe-inline'` with a loud build-log warning only if a build's union outgrows the line again — see §6 item 9. This is what an **unmatched URL** (a 404) receives; it also enforces `object-src`, `base-uri`, `form-action`, `frame-ancestors`, `default-src`, style/img/connect restrictions either way. |
+| one rule per exported page (57 rules: `/`, `/x/`, `/x`, `/x/index.html` variants) | the **strict** CSP with exactly that page's hashes (572–842 chars before the inline-script merge step, **518** after it — every page then carries the same 3 script groups) |
 
 A real page matches both rules and therefore receives **two policies, which browsers
 intersect (AND)**: a script must pass the catch-all **and** the strict policy. In strong
@@ -121,11 +122,13 @@ exercised before deployment, not after.
 **Residual gap — closed 2026-10-25 (measurements in §6 item 9):** at an *unmatched* URL
 only the catch-all applies, and it used to carry `script-src 'self' 'unsafe-inline'`, so
 the 404 page's inline scripts were not hash-constrained. The catch-all now carries the
-**union of every hash** in the build when that fits the 2,000-char line — the deployed
-Linux build fits (live-measured: 1,463 chars, 21 hashes), so the 404 is hash-constrained
-too. Local Windows builds, whose union (40 hashes) exceeds the line limit, still fall
-back to `unsafe-inline` with a loud build warning; `check-live-headers.mjs` **fails** on
-a fallback catch-all unless `--allow-fallback` is passed deliberately.
+**union of every hash** in the build when that fits the 2,000-char line — and thanks to
+`scripts/merge-inline-scripts.mjs` (which joins adjacent inline scripts before hashing)
+**both platforms fit**: the deployed Linux build at 1,463 chars / 21 hashes and the
+local Windows build at 1,409 chars / 20 hashes, so the local checker also passes with
+**no flag**. The `unsafe-inline` fallback remains only as a guard against future
+growth; `check-live-headers.mjs` **fails** on it unless `--allow-fallback` is passed
+deliberately.
 
 Rationale for the choices:
 
@@ -149,10 +152,10 @@ Rationale for the choices:
 | Measurement | Result |
 |---|---|
 | Exported HTML files scanned | **20** |
-| Executable inline scripts found | **99** → **40 unique SHA-256 hashes** |
-| Hashes per page (what a strict rule carries) | **4–9** → 567–842-char lines |
+| Executable inline scripts found | **99** → **40 unique SHA-256 hashes** *(pre-merge inventory; after `merge-inline-scripts.mjs` was added the same day: **60** scripts → **20** unique hashes)* |
+| Hashes per page (what a strict rule carries) | **4–9** → 567–842-char lines *(post-merge: 3 scripts per page, 518-char strict lines)* |
 | `_headers` rules emitted / limit | **58 / 100** (1 catch-all + 57 strict) |
-| Longest line / limit | **842 / 2,000 chars** (the pre-fix single policy was 2,516 — over) |
+| Longest line / limit | **842 / 2,000 chars** *(post-merge: **1,436** / 2,000 — the catch-all union line; the pre-fix single policy was 2,516 — over)* |
 | External subresource references in exported HTML (`http(s)://` in `src=`/`link href` to css/js/font, `integrity=`) | **0** |
 | `fetch(` / `WebSocket` / `EventSource` / worker usage in `src/` | **0** |
 | Stylesheets | 1 external (`/_next/static/chunks/*.css`), **0 `<style>` tags** |
@@ -198,7 +201,9 @@ be rebuilt, not copied:
 |---|---|
 | `npm run build` | exit 0 — `58 rules (1 catch-all + 57 strict) / limit 100; longest line 842 / limit 2000` |
 | Line-length / rule-count audit of `out/_headers` | **124 lines, 0 over 2,000 chars, 58 rules** |
-| `node scripts/check-live-headers.mjs http://127.0.0.1:8124` | **OVERALL: PASS** — 6 routes all have every required header + the strict tier (4–40 `sha256-` hashes), the unmatched URL returns 404 with the 345-char catch-all tier, `/_headers` → 404. *Recorded as it was at the time; since §6 item 9 the same local run needs `--allow-fallback`, because Windows builds fall back to `unsafe-inline` and the checker now fails on that by default.* |
+| `node scripts/check-live-headers.mjs http://127.0.0.1:8124` | **OVERALL: PASS** — 6 routes all have every required header + the strict tier (4–40 `sha256-` hashes), the unmatched URL returns 404 with the 345-char catch-all tier, `/_headers` → 404. *Recorded as it was at the time; the run no longer needs `--allow-fallback` either —
+since the inline-script merge step was added (§6 item 9, evidence below) local Windows
+builds emit the strong catch-all again.* |
 | Browser, 7 real routes (`/`, `/download/`, `/docs/`, `/docs/faq/`, `/features/`, `/compare/`, `/security/`) | **0 CSP violations / 0 console errors** under the comma-joined two-tier policy |
 | Browser, unmatched URL | only the expected `404 (Not Found)` message — the catch-all tier does not block the page |
 | Theme toggle (dark → light) | works, `localStorage.ipdf-site-theme` updated, 0 errors |
@@ -263,6 +268,14 @@ localhost and `pages.dev` demonstrate. A cross-copying the local `_headers` onto
 Cloudflare build (or vice versa) would **not** be safe: the hashes would not match the
 served HTML.
 
+**Update, same day:** the inline-script merge step (`scripts/merge-inline-scripts.mjs`)
+now runs on both platforms, and it removes the structural cause above — Windows's six
+separate `self.__next_f.push(...)` scripts get joined into one run, exactly matching the
+shape Linux already emitted. After merging, Windows yields 60 scripts / 20 hashes
+(1,436-char longest line) against Linux's pre-merge 80 / 21 — the two builds are now the
+same shape, though the rule in the previous paragraph still stands: never copy `_headers`
+between builds, each is generated from its own bytes.
+
 ## 6. Limitations and residual risk (read before calling this "done")
 
 1. **Two hosts serve two different realities (updated 2026-10-25).** The policy **is
@@ -314,8 +327,8 @@ served HTML.
    executable inline scripts), so its hashes are knowable at build time.
    The fix therefore puts the **union of all hashes** on `/*` (dropping
    `unsafe-inline`) — the same union the pre-two-tier single policy carried. Whether
-   it fits is platform-dependent: the Linux build that deploys **fits**, Windows
-   builds do **not** (40 hashes = 2,516-char line), so
+   it fits is platform-dependent: the Linux build that deploys **fits**,
+   Windows builds originally did **not** (40 hashes = 2,516-char line), so
    `gen-headers` automatically falls back to `unsafe-inline` there and prints a
    WARNING naming this residual as open *for that build*. `check-live-headers.mjs`
    now **fails** on a fallback catch-all unless `--allow-fallback` is passed, so a
@@ -325,7 +338,7 @@ served HTML.
    | Check | Result |
    |---|---|
    | `check-live-headers.mjs https://irfanpdf.pages.dev` (no flag) | ✅ **strong**: catch-all CSP 1,463 chars, **21 hashes**, no `unsafe-inline` in `script-src` → **OVERALL: PASS**, exit 0 |
-   | Same checker on the local Windows build | ✅ FAIL without flag / PASS with `--allow-fallback` — the fallback path is still exercised and visible, as designed |
+   | Same checker on the local Windows build | ✅ at the time: FAIL without flag / PASS with `--allow-fallback` — the fallback path was exercised and visible, as designed. **Since closed:** see the merge-step evidence below |
    | Live `crawl.js` | ✅ **OVERALL: PASS** |
    | Browser, live unmatched URL | ✅ 404 page renders, its inline theme script **runs** under the hash-constrained policy (toggle flipped the stored theme), only the expected 404 resource message; 0 CSP violations on `/`, `/features/`, `/download/` |
 
@@ -335,9 +348,26 @@ served HTML.
    present *by design* (§5), so "strong" could never be true. The test is now scoped to
    the **`script-src` directive only** (and `script-src-attr`/`-elem` cannot masquerade
    as it), which is what surfaced the real strong-mode result above.
-   **Remaining caveat:** Windows *local* builds still run the fallback (union 2,516 >
-   2,000) — a platform divergence, not a live gap; closing it locally would need a
-   post-build inline-script merge (optional, see §5.5).
+   **Remaining caveat — also closed 2026-10-25 (`scripts/merge-inline-scripts.mjs`,
+   added to the build between `flatten-rsc` and `gen-headers`).** Windows local builds
+   used to run the fallback (union 2,516 > 2,000) — a platform divergence, not a live
+   gap. The new step joins each run of **adjacent inline scripts** (whitespace-only gap,
+   same type, no attributes beyond `type`, execution order preserved) before `gen-headers`
+   hashes them, taking the Windows export from 99 scripts / 40 hashes to **60 scripts /
+   20 hashes**:
+
+   | Local (Windows) check, after the merge step | Result |
+   |---|---|
+   | `npm run build` | ✅ exit 0 — `merge-inline-scripts: 99 → 60 (20 runs merged)`; `gen-headers: catch-all CSP = 1409 chars (strong: 20 hashes, no unsafe-inline)` — **no fallback, no warning** |
+   | `check-live-headers.mjs http://127.0.0.1:8124` **without any flag** | ✅ `catch-all is hash-constrained (strong) — 20 hashes` → **OVERALL: PASS** |
+   | `node crawl.js http://127.0.0.1:8124` | ✅ **OVERALL: PASS** |
+   | `npm run typecheck` / `npm run test:assistant` | ✅ exit 0 / **206 passed, 0 failed** |
+   | Browser, 9 routes (8 real + unmatched) | ✅ **0 CSP violations everywhere**; every `h1`/title correct, theme toggle → dark + `localStorage`, SPA nav → `/features/`, assistant replies, final console errors: none — i.e. the merged scripts behave **identically** to the unmerged ones |
+   | `npm run build` / tests / audit after the `typescript@7` upgrade | ✅ same pass (the merge step is part of `build`) |
+
+   The fallback path still exists as a guard against future growth and is still
+   reachable on purpose with `--allow-fallback`; it simply no longer occurs in any
+   normal build.
 
 ## 7. Moving to a host that can send these headers (the chosen path)
 
@@ -384,14 +414,17 @@ the project settings, and the rollback, is in
 ## 8. How to re-run this verification
 
 ```powershell
-npm run build                       # regenerates out/_headers (fails closed if it can't)
+npm run build                       # flatten-rsc + merge-inline-scripts + gen-headers
+                                    # (each step fails closed if it can't do its job)
 node scripts/serve-headers.mjs      # serves out/ with the real headers on :8124
 # then load http://127.0.0.1:8124/ in a browser and read the console:
 #   0 "Content Security Policy" messages = policy and HTML still agree
-node scripts/check-live-headers.mjs http://127.0.0.1:8124 --allow-fallback
-#   ^ local Windows builds emit the documented unsafe-inline catch-all fallback
-#     (their hash union exceeds the host's 2,000-char line); without the flag the
-#     catch-all check FAILS by design
+node scripts/check-live-headers.mjs http://127.0.0.1:8124
+#   ^ NO flag: since merge-inline-scripts joined adjacent inline scripts, both
+#     platforms fit the catch-all union, so the local run must report STRONG and
+#     end OVERALL: PASS — a fallback here would be a real regression
+#   (--allow-fallback exists only to accept a fallback deliberately, e.g. while
+#     debugging a build whose union outgrows the 2,000-char line again)
 
 # against the production site (after any push that Cloudflare rebuilds):
 #   NO flag here on purpose — a fallback catch-all on the live host is a FAIL:

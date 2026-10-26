@@ -5,7 +5,7 @@ Why this shape (all checked 2026-10-22):
 * **Username `irfanpdf` is free** (`api.github.com/users/irfanpdf` → 404, re-verified
   2026-10-22). A user named `irfanpdf` gets the site URL **`https://irfanpdf.github.io/`**
   — free for the lifetime of the account, HTTPS included.
-* The account was created as `[previous username redacted]-ai` (2026-10-13) and is being renamed to
+* The account was created as `[previous username redacted]` (2026-10-13) and is being renamed to
   `irfanpdf` (GitHub → Settings → Account → Change username). The rename must happen
   **before** the repositories below are created; nothing has been pushed yet, so nothing
   breaks. After the rename, `irfanpdf.github.io` is claimable by this account alone.
@@ -18,7 +18,7 @@ Why this shape (all checked 2026-10-22):
 
 ## Preconditions
 
-1. GitHub account **named `irfanpdf`** (the existing `[previous username redacted]-ai` account renamed;
+1. GitHub account **named `irfanpdf`** (the existing `[previous username redacted]` account renamed;
    only its owner can sign in and perform the steps below).
 2. `git` on this machine (present: Git 2.56.0).
 
@@ -106,7 +106,7 @@ new release tag in `irfanpdf-releases` and update `DOWNLOAD_BASE_URL` (and the d
   twice that day, before and after the decision to rename).
 * `https://github.com/irfanpdf/irfanpdf.github.io` → 404 on 2026-10-22 (the user-site
   repository — and therefore the root URL — unclaimed).
-* `https://github.com/[previous username redacted]-ai` → live profile on 2026-10-22 (the account that
+* The account's former profile URL (previous username redacted) → live profile on 2026-10-22 (the account that
   performs this plan; renamed to `irfanpdf` per the note above).
 * `irfanpdf.pages.dev` → NXDOMAIN on 2026-10-22 (free, but Cloudflare's 25 MiB file cap
   cannot host the packages, and it still needs a Cloudflare account — not chosen).

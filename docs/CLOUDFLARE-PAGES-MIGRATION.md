@@ -73,7 +73,7 @@ would drop.
 
 ### 2.1 Create the account — *done*
 
-A free account already existed by the time this ran (session: `[previous username redacted]@[personal email redacted]`).
+A free account already existed by the time this ran (session: `[personal email redacted]`).
 The one step that genuinely could not be automated was **GitHub's OAuth sign-in** when
 Cloudflare asked to connect the repository — that required the `irfanpdf` account's
 credentials and was completed by hand in the browser.

@@ -1,0 +1,74 @@
+# Scheduled backup + verification run for the site repository.
+#
+# WHAT IT DOES (all free on a public repo):
+#   1. builds and tests the repo from a clean checkout (so a broken dependency
+#      or failing test is caught even when nobody pushes);
+#   2. runs scripts/backup.mjs create --with-build OUTSIDE the workspace
+#      ($RUNNER_TEMP), verifying the archive immediately after creating it;
+#   3. uploads that archive as a private Actions artifact (90-day retention).
+#
+# HONEST LIMITATIONS, stated where you cannot miss them:
+#   - an Actions artifact EXPIRES (retention-days below): it is an off-site copy
+#     with a clock on it, NOT permanent storage. Permanent copies live in your
+#     local SECURITY_BACKUPS folder and whatever offline medium you sync it to;
+#   - this job never deploys, never pushes, and holds `contents: read` only -
+#     it cannot change the site even if the token were abused;
+#   - scheduled workflows are disabled by GitHub after ~60 days without
+#     repository activity - check the Actions tab after quiet periods;
+#   - a failed run emails you (GitHub's default): that IS the alert channel
+#     until a dedicated notification setup exists.
+name: backup-and-verify
+
+on:
+  schedule:
+    - cron: "17 3 * * *"   # daily 03:17 UTC
+    - cron: "43 4 * * 1"   # weekly, Monday 04:43 UTC
+  workflow_dispatch:        # manual "Create Backup Now" from the Actions tab
+
+permissions:
+  contents: read            # least privilege: read-only, no write, no deploy
+
+concurrency:
+  group: backup
+  cancel-in-progress: false # never cancel a backup half-way through
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # full history: the bundle is only as deep as this
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # verification gate: a backup of a repo that does not build is not a
+      # known-good state, so stop here (and email the failure) if it breaks.
+      - run: npm run typecheck
+      - run: npm run test:assistant
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_SITE_URL: ${{ vars.SITE_URL }}
+          NEXT_PUBLIC_DOWNLOAD_BASE_URL: ${{ vars.DOWNLOAD_BASE_URL }}
+
+      # IRFAN_BACKUP_ROOT keeps the archive out of the workspace so it can
+      # never be committed or published by accident.
+      - run: node scripts/backup.mjs create --with-build
+        env:
+          IRFAN_BACKUP_ROOT: ${{ runner.temp }}/SECURITY_BACKUPS
+
+      - run: node scripts/backup.mjs list
+        env:
+          IRFAN_BACKUP_ROOT: ${{ runner.temp }}/SECURITY_BACKUPS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: irfan-backup-${{ github.run_number }}
+          path: ${{ runner.temp }}/SECURITY_BACKUPS/irfan-*
+          if-no-files-found: error
+          retention-days: 90

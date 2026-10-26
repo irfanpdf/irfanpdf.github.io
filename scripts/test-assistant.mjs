@@ -1,18 +1,30 @@
 // Unit tests for the site assistant (src/lib/assistant.ts).
 //
-// Zero extra dependencies: the TypeScript compiler is already a devDependency,
-// so this script transpiles the engine (and its @/data imports) to CommonJS in
-// memory and runs assertions against the real exported functions.
+// Zero extra dependencies. The engine is loaded from TypeScript source in one
+// of two ways, depending on what the installed toolchain still offers:
+//
+//   - typescript <= 6: the package ships the classic JS compiler API
+//     (ts.transpileModule), so the engine and its `@/data/*` imports are
+//     transpiled to CommonJS in memory and evaluated directly (original path);
+//   - typescript >= 7 (the native port): the package root export is nothing
+//     but version strings and the compiler is a native binary — there is NO
+//     JS API left to transpile with. The .ts files are then imported as-is
+//     and Node's built-in type stripping removes the types, with a
+//     module.registerHooks() resolve hook mapping the tsconfig `@/*` alias
+//     (needs Node >= 22.15 for the hook; >= 22.18 for type stripping by
+//     default — dev machine and this repo's tooling are far above that).
 //
 // Run: npm run test:assistant        (exit code 0 = all PASS)
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const ts = require("typescript");
+// Does this typescript still expose the classic in-memory transpile API?
+const CLASSIC_API = Boolean(ts && typeof ts.transpileModule === "function");
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..");
@@ -20,6 +32,7 @@ const SRC = path.join(ROOT, "src");
 
 const cache = new Map();
 
+// Classic mode (typescript <= 6): transpile to CommonJS and run it.
 function loadTsFile(file) {
   if (cache.has(file)) return cache.get(file);
   const source = readFileSync(file, "utf8");
@@ -44,7 +57,31 @@ function loadTsFile(file) {
   return module.exports;
 }
 
-const lib = loadTsFile(path.join(SRC, "lib", "assistant.ts"));
+// Typescript >= 7 mode: no JS API, so let Node strip the types itself and
+// teach Node's resolver the `@/*` tsconfig alias while we're at it.
+async function loadEngine() {
+  const entry = path.join(SRC, "lib", "assistant.ts");
+  if (CLASSIC_API) return loadTsFile(entry);
+
+  const { registerHooks } = await import("node:module");
+  registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (specifier.startsWith("@/")) {
+        const base = path.join(SRC, specifier.slice(2));
+        for (const candidate of [`${base}.ts`, `${base}.tsx`, path.join(base, "index.ts")]) {
+          if (existsSync(candidate)) {
+            return { url: pathToFileURL(candidate).href, shortCircuit: true };
+          }
+        }
+        throw new Error(`test-assistant: cannot resolve tsconfig alias "${specifier}" (tried ${base}.ts)`);
+      }
+      return nextResolve(specifier, context);
+    },
+  });
+  return import(pathToFileURL(entry).href);
+}
+
+const lib = await loadEngine();
 const { ENTRIES, SUGGESTIONS, FALLBACK, answerFor, matchEntry, normalize } = lib;
 
 let pass = 0;

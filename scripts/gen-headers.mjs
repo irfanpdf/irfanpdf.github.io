@@ -17,20 +17,23 @@
  *
  * Why TWO tiers of CSP (since the Cloudflare Pages migration prep, 2026-10-25):
  *   Cloudflare documents two hard limits for `_headers`: 100 rules per file and
- *   **2,000 characters per line**, counting indentation and the header name. A
- *   single `/*` policy carrying the union of all hashes is 2,516 chars on a
- *   Windows build — over the limit, and a line the host drops is a line the
+ *   **2,000 characters per line**, counting indentation and the header name.
+ *   Before the inline-script merge step existed, a Windows build's union needed
+ *   a 2,516-char line — over the limit, and a line the host drops is a line the
  *   site never gets. So the file carries:
  *     `/*`              → all the non-CSP headers + a catch-all CSP. It carries
  *                         the UNION of every hash when that fits the 2,000-char
- *                         line (strong mode — the deployed Linux build fits,
- *                         measured ~1,491 chars), which closes residual §6.9:
+ *                         line (strong mode — both platforms fit now that
+ *                         scripts/merge-inline-scripts.mjs runs first: Linux
+ *                         ~1,463 chars pre-merge-era, Windows 1,409 chars with
+ *                         20 hashes), which closes residual §6.9:
  *                         an unmatched URL receives only this rule, yet its
- *                         404 page is still hash-constrained. When the union
- *                         does not fit (Windows builds, which split the RSC
- *                         payload into more inline scripts), it falls back to
- *                         'unsafe-inline' and prints a loud WARNING naming the
- *                         residual as open for that build.
+ *                         404 page is still hash-constrained. Should the union
+ *                         ever outgrow the line again (page count or script
+ *                         count growth), it falls back to 'unsafe-inline' and
+ *                         prints a loud WARNING naming the residual as open
+ *                         for that build — a weak-but-honest catch-all beats a
+ *                         dropped line with no policy at all.
  *     one rule per page → the STRICT CSP with exactly that page's hashes.
  *
  *   A real page matches both rules and gets two policies, which browsers
@@ -208,18 +211,21 @@ const OTHER_HEADERS = [
 //   2. allow every real page's inline scripts too, because this rule is
 //      comma-joined with each strict per-page rule (a script must pass BOTH
 //      policies, so the catch-all cannot list only the 404's hashes).
-// Hence: the union of every hash in the export — the same union that the
+// Hence: the UNION of every hash in the export — the same union the
 // pre-two-tier single policy carried. Whether it fits is platform-dependent
 // (measured 2026-10-25: Linux build 21 hashes ≈ 1,491-char line, fits;
-// Windows build 40 hashes ≈ 2,517-char line, does not — Next splits the RSC
-// payload into more inline scripts on Windows, see SECURITY-HARDENING §5.5).
+// Windows build before the merge step: 40 hashes ≈ 2,517-char line, did not —
+// scripts/merge-inline-scripts.mjs now merges adjacent inline scripts first,
+// taking Windows to 20 hashes / 1,409 chars, so BOTH platforms fit;
+// see SECURITY-HARDENING §5.5).
 //
 // Fallback, chosen rather than fatal: if the union line would exceed
-// Cloudflare's 2,000-char limit, emit the old 'unsafe-inline' fallback and
-// say so loudly in the build log. A weak-but-honest catch-all still ships all
-// the other headers and keeps local Windows builds deployable; a line the
-// host would silently drop would ship NO policy at all. scripts/check-live-headers.mjs
-// reports the mode it finds, so a live regression to fallback is visible.
+// Cloudflare's 2,000-char limit (page/script growth could do it again), emit
+// the old 'unsafe-inline' fallback and say so loudly in the build log. A
+// weak-but-honest catch-all still ships all the other headers; a line the
+// host would silently drop would ship NO policy at all.
+// scripts/check-live-headers.mjs reports the mode it finds, so a live
+// regression to fallback is visible.
 const strongSrc = ["'self'", ...[...union].sort()].join(" ");
 const strongLine = `  Content-Security-Policy: ${csp(strongSrc)}`;
 const catchAllMode = strongLine.length <= MAX_LINE ? "strong" : "fallback";
@@ -283,8 +289,9 @@ if (catchAllMode === "fallback") {
     `gen-headers: WARNING — the hash union needs a ${strongLine.length}-char catch-all line, over ` +
       `Cloudflare's ${MAX_LINE}-char limit, so this build fell back to 'unsafe-inline' in the ` +
       `catch-all. Real pages stay hash-constrained by their strict per-page rules, but an ` +
-      `unmatched URL (the 404) does NOT (residual §6.9 open for this build). The build that ` +
-      `deploys from Linux fits (21 hashes in the last Linux build ≈ 1,491-char line); local ` +
-      `Windows builds do not (40 hashes = ${strongLine.length} chars).`
+      `unmatched URL (the 404) does NOT (residual §6.9 open for this build). scripts/merge-inline-scripts.mjs ` +
+      `normally keeps the union small (it runs before this script and merged this export's ` +
+      `adjacent inline scripts) — if this warning appears, the export has grown past the ` +
+      `limit again: check that script's output first, and do NOT deploy this build as-is.`
   );
 }

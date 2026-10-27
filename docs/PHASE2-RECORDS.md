@@ -18,7 +18,7 @@ added to the account. Every control in this record is on a free tier.
 
 | ID | Control | Status | One-line evidence |
 |----|---------|--------|-------------------|
-| H1 | Cloudflare account 2FA | **OPEN** | Still `Inactive`; owner explicitly chose to skip in this engagement (decision recorded, §6) |
+| H1 | Cloudflare account 2FA | **PASS** (email method) | Re-read from `/profile/access-management/authentication/two-factor` after a full reload: *"Email two-factor authentication is active"*, button reads `Disable` (§4.2). Weaker than TOTP — residual-risk note in §4.2 |
 | H2 | Branch protection on `main`, both repos | **PASS** | Read back from the API: PR required, 0 approvals, no force-push, no deletions, admin bypass retained |
 | H3 | Releases repo: signed installers | **OPEN** | Not part of this batch; unchanged from the Phase 1 finding |
 | M1 | Personal data in tracked docs | **PASS** (tree) / **OPEN** (history) | `git grep` for the PII tokens at `HEAD` → 0 matches; the strings still exist in pushed history (§6) |
@@ -207,14 +207,53 @@ Stated limitations (kept in the workflow file itself):
 | Members | 1 (sole Super admin) |
 | API tokens | none |
 | Audit log (last 7 days) | 0 events before this engagement |
-| 2FA | **Inactive** (H1, open — owner chose to skip) |
+| 2FA | **Active — email method** since 2026-10-27 (H1, §4.2) |
 
-### 4.2 Cloudflare 2FA — H1 (OPEN, by owner decision)
+### 4.2 Cloudflare 2FA — H1 (enabled 2026-10-27, email method)
 
-The owner was offered step-by-step enablement three times and chose **Skip** on
-2026-10-26. Status therefore remains `Inactive` and the finding stays **open High**
-in the final report. Nothing in this engagement changed it, and no claim of
-"2FA enabled" is made anywhere.
+Timeline, so the record matches the report honestly:
+
+- 2026-10-26 — offered step-by-step enablement twice, **declined/skipped** both
+  times; recorded as open High.
+- 2026-10-27 — owner chose **Enable 2FA now**, and of the three methods offered
+  (security key / mobile app TOTP / email) selected **Email Authentication**.
+
+What was done: My Profile → Authentication → Two-Factor Authentication →
+`Enable` on the *Email Authentication* row.
+
+Observed behaviour, recorded exactly as it happened: Cloudflare activated the
+method **without asking for a confirmation code at enable time** — no QR, no
+TOTP entry, no "enter the code we just emailed you" step was presented. The page
+immediately showed the row with a `Disable` button. Because an instant UI state
+proves nothing on its own, the page was then **fully reloaded** and read back:
+
+```
+Two-Factor Authentication
+  Email two-factor authentication is active.
+Email Authentication   [Disable]
+  "Email authentication is active. You will receive authentication codes via
+   email when logging in."
+```
+
+A second, independent read after another navigation returned the same two facts
+(`emailActive: true`, `inactive: false`, `Disable` button present). Status:
+**PASS** — a second factor now exists where none did.
+
+**Residual risk, stated rather than glossed over:**
+
+- Email 2FA is the **weakest** of the three available methods: the second factor
+  travels to the same mailbox that a password-reset link would also reach, so an
+  attacker who already controls the owner's email defeats it. It closes the
+  "no second factor at all" gap; it does **not** equal TOTP or a hardware key.
+- No backup codes were generated during this run, and **Mobile App (TOTP)** and
+  **Security Key** remain unconfigured — both are free (TOTP app) and available
+  as a later strengthening step. A hardware key would cost money and is excluded
+  by the zero-cost constraint.
+- GitHub account 2FA was **not** changed in this engagement and its status is
+  **NOT RUN** — not claimed either way.
+
+The codes themselves are never read into any log, file or message by this
+assistant; only the owner sees them, in their own mailbox.
 
 ### 4.3 Preview deployments restricted — M5
 
@@ -303,7 +342,8 @@ Cloudflare zone or a `_headers`-capable host in front of it. Left open.
 | 2026-10-26 | Take on all six Phase-2 items | §1 table |
 | 2026-10-26 | Push the two backup-module commits + run the workflow once | F and F2 closed |
 | 2026-10-26 | Restrict preview deployments | M5 closed |
-| 2026-10-26 | **Skip Cloudflare 2FA** | **H1 stays open High** |
+| 2026-10-26 | **Skip Cloudflare 2FA** | H1 stayed open High at that point |
+| 2026-10-27 | **Enable Cloudflare 2FA — email method** (owner reversed the skip, chose email over TOTP) | H1 closed as PASS with a recorded weakness note (§4.2) |
 | 2026-10-27 | **Nothing may cost money — not ₹1** | all paid options marked NOT APPLICABLE; no purchase attempted |
 | 2026-10-27 | Create the incident alert | one notification live and verified |
 
@@ -314,6 +354,8 @@ Still undecided, each requiring its own explicit go-ahead:
 - **support channel** (currently the `security.txt` advisory form — final or not?);
 - **`github.io` future** (keep both hosts, or retire the header-less one);
 - H3 signed installers, M3 token scope, M4 github.io headers.
+- **strengthen 2FA** — add TOTP (free app) and/or generate + store backup codes;
+  email-only was the owner's choice for now (§4.2).
 
 ---
 
@@ -335,6 +377,9 @@ node crawl.js https://irfanpdf.pages.dev
 
 # preview restriction (expect 302 to the Access login)
 curl -s -o NUL -w "%{http_code} -> %{redirect_url}" https://x.yourproject.pages.dev/
+
+# 2FA status (expect "Email two-factor authentication is active")
+#   dash.cloudflare.com/profile/access-management/authentication/two-factor
 
 # backup workflow
 #   Actions tab -> backup-and-verify -> most recent run must be green with an artifact

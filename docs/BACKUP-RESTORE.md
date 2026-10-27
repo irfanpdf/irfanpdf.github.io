@@ -247,3 +247,13 @@ codes. Store them where a backup file cannot leak them:
 - [ ] Store a backup inside `public/` or anywhere in the repo
 - [ ] Delete the last verified backup (the tool refuses — don't work around it)
 - [ ] Push to `main` as a "restore"; restore to staging first (§4)
+
+---
+
+**Note on commit SHAs (added 2026-10-27):** repository history was
+rewritten on this date to purge personal data - see `PHASE2-RECORDS.md` §8.
+The SHA(s) referenced above ("4ef39c7") are **pre-rewrite** commits: they no
+longer exist on the remote and are preserved only inside the local
+`SECURITY_BACKUPS` bundles; their rewritten equivalents are listed in the
+§8 mapping table. The original values were deliberately left untouched here -
+they record what was actually built, deployed and measured at the time.

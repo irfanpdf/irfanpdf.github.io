@@ -417,3 +417,13 @@ to end from the public download back to the local artifact.
 5. Re-hash the two large public artifacts if byte-level confirmation of all three is
    wanted (§3.1). **DONE 2026-10-25** — both downloaded and hashed: sizes exact,
    SHA-256 **MATCH** (§3.1); all 3/3 public artifacts byte-verified.
+
+---
+
+**Note on commit SHAs (added 2026-10-27):** repository history was
+rewritten on this date to purge personal data - see `PHASE2-RECORDS.md` §8.
+The SHA(s) referenced above ("3f204c5", "98d04aa") are **pre-rewrite** commits: they no
+longer exist on the remote and are preserved only inside the local
+`SECURITY_BACKUPS` bundles; their rewritten equivalents are listed in the
+§8 mapping table. The original values were deliberately left untouched here -
+they record what was actually built, deployed and measured at the time.

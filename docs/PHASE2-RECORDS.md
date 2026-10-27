@@ -21,7 +21,7 @@ added to the account. Every control in this record is on a free tier.
 | H1 | Cloudflare account 2FA | **PASS** (email method) | Re-read from `/profile/access-management/authentication/two-factor` after a full reload: *"Email two-factor authentication is active"*, button reads `Disable` (§4.2). Weaker than TOTP — residual-risk note in §4.2 |
 | H2 | Branch protection on `main`, both repos | **PASS** | Read back from the API: PR required, 0 approvals, no force-push, no deletions, admin bypass retained |
 | H3 | Releases repo: signed installers | **OPEN** | Not part of this batch; unchanged from the Phase 1 finding |
-| M1 | Personal data in tracked docs | **PASS** (tree) / **OPEN** (history) | `git grep` for the PII tokens at `HEAD` → 0 matches; the strings still exist in pushed history (§6) |
+| M1 | Personal data in tracked docs | **PASS** (tree) / **PASS** (history, with a server-side caveat) | `git grep` at `HEAD` → 0; history rewritten 2026-10-27 → 0 in contents and messages across all 25 commits (§8). Caveat: old objects were still resolvable by SHA after the push (§8.6) |
 | M2 | Dependabot alerts + security updates | **PASS** | `vulnerability-alerts` and `automated-security-fixes` enabled and read back `enabled` on both repos |
 | M3 | Over-broad token scope | **OPEN** | Unchanged; checks continue to use the stored credential read in-memory only |
 | M4 | `github.io` sends no custom headers | **OPEN** | Unchanged — that host is Cloudflare-free, so it serves no `_headers` (§5) |
@@ -85,11 +85,12 @@ name. Replaced with `[personal email redacted]` / `[previous username redacted]`
 
 Verification: `git grep` for both PII tokens across `HEAD` → **0 matches**.
 
-**Honest boundary:** this fixes the current tree only. The same strings remain in
-pushed git history (4 commits touch the old account name; 1 commit message contains
-a local filesystem path). Purging them requires a history rewrite + force-push,
-which rewrites every commit, breaks every clone and forces both hosts to rebuild.
-That stays a separate, explicitly-confirmed decision — §6.
+**Boundary, as it stood then:** this commit fixed the current tree only; the same
+strings remained in pushed history (several commits carried the old account name,
+and 1 commit message carried a local filesystem path). Purging them required a
+history rewrite + force-push — every commit rewritten, every clone broken, both
+hosts rebuilt. That was left as a separate, explicitly-confirmed decision on
+2026-10-26 and then **carried out on 2026-10-27** — §8.
 
 ---
 
@@ -346,16 +347,22 @@ Cloudflare zone or a `_headers`-capable host in front of it. Left open.
 | 2026-10-27 | **Enable Cloudflare 2FA — email method** (owner reversed the skip, chose email over TOTP) | H1 closed as PASS with a recorded weakness note (§4.2) |
 | 2026-10-27 | **Nothing may cost money — not ₹1** | all paid options marked NOT APPLICABLE; no purchase attempted |
 | 2026-10-27 | Create the incident alert | one notification live and verified |
+| 2026-10-27 | **Plan the history rewrite (safe part only)** — inventory + tool + rewrite of a throwaway clone; nothing destructive without a second approval | 25 commits, PII mapped to 4 files + 1 message; clone verified PII-free and byte-identical at `HEAD` |
+| 2026-10-27 | **Force-push the rewritten history** (destructive) | `89d15d6` → `62b25d0`; every clone must re-clone; deploy run #18 green |
+| 2026-10-27 | **Temporarily allow force pushes** if branch protection blocked it, then re-lock | first push refused with GH006; `allow_force_pushes` toggled → push succeeded → toggled back (read-back: `False`) |
+| 2026-10-27 | Rewrite the local safety branch too, but **not** publish it | local-only, now `003b826`, PII-free |
+| 2026-10-27 | **Keep pre-rewrite SHAs in the docs** (declined to overwrite historical evidence) | old SHAs stay where they were measured; mapping table in §8.5 |
 
 Still undecided, each requiring its own explicit go-ahead:
 
-- **history rewrite** to purge the PII from pushed history (destructive: rewrite +
-  force-push + both hosts rebuild + every clone breaks);
 - **support channel** (currently the `security.txt` advisory form — final or not?);
 - **`github.io` future** (keep both hosts, or retire the header-less one);
 - H3 signed installers, M3 token scope, M4 github.io headers.
 - **strengthen 2FA** — add TOTP (free app) and/or generate + store backup codes;
   email-only was the owner's choice for now (§4.2).
+- **old objects on GitHub's side** — the pre-rewrite commits were still
+  resolvable by SHA after the push (§8.6); either wait for GitHub's internal GC
+  or ask Support to expire them (free).
 
 ---
 
@@ -383,7 +390,136 @@ curl -s -o NUL -w "%{http_code} -> %{redirect_url}" https://x.yourproject.pages.
 
 # backup workflow
 #   Actions tab -> backup-and-verify -> most recent run must be green with an artifact
+
+# history rewrite verification: PII must be 0 in contents AND messages of every
+# commit. The three real tokens are NOT written down here - substitute them from
+# your own password manager / memory when you run it:
+#   <local-user>  <previous-username>  <email-domain>
+git grep -I -i -l -F -e '<local-user>' -e '<previous-username>' -e '<email-domain>' $(git rev-list --all)
+git log --all --format='%B' | Select-String -Pattern '<local-user>|<previous-username>|<email-domain>'
 ```
+
+---
+
+## 8. History rewrite — M1 history closed (2026-10-27)
+
+### 8.1 What was found before rewriting
+
+An exact inventory across all 25 commits on both refs, contents **and** commit
+messages, produced by running `git grep` over every revision. Output was masked
+as it printed, so no token ever reached a terminal line, a log or a file:
+
+| Token | Files carrying it in history | Commit messages |
+|---|---|---|
+| local username path | 5 — `BACKUP-RESTORE.md`, `WEBSITE-ANALYSIS.md`, `README.md`, `PUBLISH-GITHUB.md`, `VERIFICATION-REPORT.md` | 1 — `0c3512e0` |
+| previous account name | 2 — `CLOUDFLARE-PAGES-MIGRATION.md`, `PUBLISH-GITHUB.md` | 0 |
+| email address | 1 — `CLOUDFLARE-PAGES-MIGRATION.md` | 0 |
+| Cloudflare account id | 0 | 0 |
+
+At `HEAD` every token was already 0 — this rewrite targets history only.
+(Note: the earlier impression of "19 commits" was 19 *snapshots* of one file
+that carried the old name from `f3ab65c` until `4ef39c7` removed it; the real
+blast radius is 4 files + 1 message.)
+
+### 8.2 How it was done
+
+1. **Backup first:** `irfan-20261027-105446`, 153 files, head `89d15d6`
+   (pre-rewrite), self-verify PASS — a rollback existed before anything changed.
+2. `git clone --mirror` into a temp directory. The working repository and
+   `origin` were **not** touched while the rewrite itself ran.
+3. `git filter-repo --replace-text … --replace-message … --prune-empty never`
+   with four **literal** replacements. The replacement file contained only
+   placeholders — the real values were never written to disk by this step.
+4. Verified inside the clone:
+   - 0 hits for every token in contents **and** messages across all 25 commits;
+   - 85 paths at `HEAD` identical to the working repository;
+   - **0 blobs differ at `HEAD`** — the final tree is byte-identical, so the
+     served site cannot change as a result of this;
+   - `typecheck` exit 0, **206 passed / 0 failed**, full build exit 0 with the
+     same `1409 chars / 20 hashes` catch-all CSP as production.
+5. Only after all of that: the force-push (§8.3).
+
+`--prune-empty never` mattered. With the default setting, the commit
+*"DOCS: redact a local username path that this batch itself introduced"*
+became an empty diff after the global redaction and was silently dropped —
+25 commits became 24. Re-running with `--prune-empty never` kept all 25, so the
+record of that mistake survives (new SHA `34ea708`).
+
+### 8.3 The force-push, including the block it hit
+
+First attempt was refused by branch protection, exactly as it was configured:
+
+```
+remote: error: GH006: Protected branch update failed for refs/heads/main
+remote: - Cannot force-push to this branch
+ ! [remote rejected] main -> main (protected branch hook declined)
+```
+
+The owner had pre-approved toggling force-pushes if this happened. Settings were
+then changed through the API flipping **only** `allow_force_pushes`
+(read-back before the push: force-push `false`, `enforce_admins` `false`,
+PR required with 0 approvals, deletions `false`), the push was retried:
+
+```
++ 89d15d6...62b25d0 main -> main (forced update)
+```
+
+and the setting was re-locked and read back immediately:
+`allow_force_pushes=False`, `allow_deletions=False`, `enforce_admins=False`,
+PR required with 0 approvals — the same posture as before, with the temporary
+change reverted.
+
+### 8.4 Verification after the push
+
+| Check | Result |
+|---|---|
+| deploy run **#18** (`62b25d0`) | success |
+| `check-live-headers.mjs` | `OVERALL: PASS` (no flag) |
+| `crawl.js` | `OVERALL: PASS` |
+| both hosts + both `security.txt` | 200 |
+| preview namespace | 302 (still Access-locked) |
+| local `HEAD` / `origin/main` | `62b25d0` / `62b25d0`, clean, 0 ahead |
+| commits reachable from any ref | 25; old `89d15d6` not among them |
+| PII across all refs (contents + messages) | 0 for all three tokens |
+| local safety branch | repointed to `003b826`, still local-only |
+
+### 8.5 SHA mapping (old → new)
+
+All 25 commit subjects matched 1:1. Pre-rewrite SHAs still appear in five
+documents as **historical evidence** — *"Actions run #10 (`3f204c5`)"*, the
+backup manifest line `head=4ef39c7`, *"deployed from commit `c743f96`"`. Those
+were deliberately **not** rewritten: replacing them with new SHAs would make the
+records false, because the new commits never appeared in run #10 or in that
+manifest.
+
+| Old (pre-2026-10-27) | New equivalent |
+|---|---|
+| `89d15d6` (old `main` head) | `62b25d0` |
+| `5d2a8d9` | `34ea708` |
+| `4ef39c7` | `7f94a46` |
+| `40d9730` | `6c1b77e` |
+| `3f204c5` | `592e106` |
+| `c743f96` | `ea3f40e` |
+| `98d04aa` | `eca39e3` |
+| `0c3512e0` | `243b9e2` |
+
+The old commits themselves remain readable **inside the local backup bundles**,
+so an old citation can still be resolved offline.
+
+### 8.6 Residual risk after the rewrite (measured, not assumed)
+
+- **The old commits are still resolvable on GitHub by direct SHA.** Measured
+  after the force-push: `89d15d64…` → HTTP 200, `0c3512e0` → HTTP 200. The
+  branches are rewritten, but GitHub keeps the now-unreachable objects until
+  its internal GC runs — timing not under our control. So the PII is off every
+  branch, and still fetchable by anyone who already knows a SHA. Options: wait
+  for GC, or ask GitHub Support to expire them (free). Both are open items.
+- Local clones still hold the old objects in their **reflog** (`git fsck` shows
+  0 unreachable only because reflogs count as roots). The `SECURITY_BACKUPS`
+  bundles deliberately keep the pre-rewrite history for rollback — they are
+  private local files. Purging the local reflog is a separate optional decision.
+- **Every clone of this repository must be re-cloned**; old SHAs cited
+  externally will not resolve against the remote.
 
 *No scan or test can guarantee freedom from viruses on any device, including
 visitors' machines. This document records what was run, and what was not.*

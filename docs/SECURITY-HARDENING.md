@@ -445,3 +445,13 @@ shipping a policy that would break the site.
 **Status:** source hardened · **policy LIVE at `https://irfanpdf.pages.dev`** (verified
 2026-10-25, §5.5) · legacy `irfanpdf.github.io` still header-less by the "run both"
 decision (§6.1) · no 100%-security claim implied (§6).
+
+---
+
+**Note on commit SHAs (added 2026-10-27):** repository history was
+rewritten on this date to purge personal data - see `PHASE2-RECORDS.md` §8.
+The SHA(s) referenced above ("3f204c5", "c743f96") are **pre-rewrite** commits: they no
+longer exist on the remote and are preserved only inside the local
+`SECURITY_BACKUPS` bundles; their rewritten equivalents are listed in the
+§8 mapping table. The original values were deliberately left untouched here -
+they record what was actually built, deployed and measured at the time.

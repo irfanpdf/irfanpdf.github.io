@@ -26,6 +26,7 @@ added to the account. Every control in this record is on a free tier.
 | M3 | Over-broad token scope | **OPEN** | Unchanged; checks continue to use the stored credential read in-memory only |
 | M4 | `github.io` sends no custom headers | **OPEN** | Unchanged — that host is Cloudflare-free, so it serves no `_headers` (§5) |
 | M5 | Preview deployments publicly readable | **PASS** | "Restricted by a Cloudflare Access policy" in settings + live `302` to the Access login at the edge (§4.3) |
+| L1 | `Access-Control-Allow-Origin: *` on every response | **PASS** (`pages.dev`) / **OPEN** (`github.io`) | `!` detach rule added to the `/*` rule; header measured **absent** on 5 live URLs incl. the 404 catch-all, other 8 headers intact, checker + crawl PASS (§9). `github.io` sends it from GitHub's own defaults — tied to M4 |
 | — | Account WAF / rate limiting | **NOT APPLICABLE** (today) | WAF rules attach to a zone we own; this project owns no zone. Paid add-on deliberately not bought (§5) |
 | — | Security notifications | **PASS** (1 live) | Incident alert listed as `Cloudflare Status / Email / Enabled`; other alert types N/A (§4.4) |
 | F | Backup & restore capability | **PASS** | Restore re-ran `npm ci` + typecheck + 206 tests + build from a fresh clone (§3) |
@@ -352,6 +353,7 @@ Cloudflare zone or a `_headers`-capable host in front of it. Left open.
 | 2026-10-27 | **Temporarily allow force pushes** if branch protection blocked it, then re-lock | first push refused with GH006; `allow_force_pushes` toggled → push succeeded → toggled back (read-back: `False`) |
 | 2026-10-27 | Rewrite the local safety branch too, but **not** publish it | local-only, now `003b826`, PII-free |
 | 2026-10-27 | **Keep pre-rewrite SHAs in the docs** (declined to overwrite historical evidence) | old SHAs stay where they were measured; mapping table in §8.5 |
+| 2026-10-28 | **Remove the host default `Access-Control-Allow-Origin: *`** from `pages.dev` (L1) | one `!` detach line; deploy #20; header measured absent on 5 URLs (§9). `github.io` untouched |
 
 Still undecided, each requiring its own explicit go-ahead:
 
@@ -520,6 +522,84 @@ so an old citation can still be resolved offline.
   private local files. Purging the local reflog is a separate optional decision.
 - **Every clone of this repository must be re-cloned**; old SHAs cited
   externally will not resolve against the remote.
+
+---
+
+## 9. L1 — removing the host's default `Access-Control-Allow-Origin` (2026-10-28)
+
+### 9.1 The finding, and an assumption that had gone untested
+
+Both hosts served `Access-Control-Allow-Origin: *` on every response. The written-up
+position (finding S2 / L1, and `SECURITY-HARDENING.md` §7 item 7) was that it comes from
+the host's own defaults and is **not configurable from this repository** — while that same
+text admitted "the exact Cloudflare-side mechanism was not verified". So the claim was an
+assumption, never a measurement.
+
+### 9.2 What the documentation actually says
+
+From Cloudflare's `_headers` documentation:
+
+> The default response headers served on static asset responses can be **overridden,
+> removed, or added to** … Headers defined in the `_headers` file **override** what
+> Cloudflare ordinarily sends.
+
+> **Detach a header** — … This can be done by prepending the header name with an
+> exclamation mark and space (`!`).
+
+Two consequences: the header **is** configurable from this repository, and it can be
+*removed* rather than merely overwritten with a narrower value.
+
+### 9.3 The change
+
+One functional line in `scripts/gen-headers.mjs`'s `OTHER_HEADERS` array:
+
+```
+! Access-Control-Allow-Origin
+```
+
+Because that array lands on the `/*` catch-all rule, the detach applies to every URL.
+Locally verified before pushing: exactly one detach line in the regenerated `out/_headers`,
+zero `Access-Control-Allow-Origin: <value>` lines, 58 rules (limit 100), longest line
+1,436 chars (limit 2,000), catch-all CSP unchanged at 1,409 chars / 20 hashes;
+`typecheck` 0, 206 passed / 0 failed, `build` 0.
+
+### 9.4 Why this was safe, not merely hoped to be safe
+
+- The same `/*` rule already sends `Cross-Origin-Resource-Policy: same-origin` (and
+  `Cross-Origin-Opener-Policy: same-origin`), which **already** prevented other origins
+  from reading these responses. The `*` was advertising a freedom browsers were not
+  granting, so no legitimate cross-origin consumer could have been working before that
+  this change breaks.
+- No source file, test or checker in the repository asserted or required the header —
+  checked `scripts/check-live-headers.mjs`, `crawl.js` and the assistant test suite.
+
+### 9.5 Live evidence (deploy run #20, `1eb5e3e`)
+
+| URL on `irfanpdf.pages.dev` | `Access-Control-Allow-Origin` | `Cross-Origin-Resource-Policy` |
+|---|---|---|
+| `/` | **absent** | `same-origin` |
+| `/docs/contact/` | **absent** | `same-origin` |
+| `/sitemap.xml` | **absent** | `same-origin` |
+| `/.well-known/security.txt` | **absent** | `same-origin` |
+| `/this-route-does-not-exist/` (404 catch-all) | **absent** | `same-origin` |
+
+All nine other security headers (HSTS, `nosniff`, `X-Frame-Options`, Referrer-Policy,
+Permissions-Policy, COOP, CORP, `X-Permitted-Cross-Domain-Policies`, CSP) measured
+**present**. `check-live-headers.mjs` → `OVERALL: PASS`; `crawl.js` → `OVERALL: PASS`;
+both hosts and both `security.txt` → 200; preview namespace → still `302`.
+
+For contrast, `irfanpdf.github.io` still sends `Access-Control-Allow-Origin: *` — that is
+GitHub Pages' own default and cannot be changed from this repository (open finding M4).
+
+### 9.6 Limits, stated plainly
+
+- This closes L1 **for `irfanpdf.pages.dev` only.**
+- `_headers` rules are not applied to responses generated by Pages Functions; this project
+  is fully static, so that does not apply — but a future SSR/Functions move would need the
+  header set in code instead.
+- The `*` was Low severity to begin with; removing it reduces a real (if small) exposure
+  and closes a documentation inaccuracy, and nothing more. It is not a substitute for the
+  items still open.
 
 *No scan or test can guarantee freedom from viruses on any device, including
 visitors' machines. This document records what was run, and what was not.*

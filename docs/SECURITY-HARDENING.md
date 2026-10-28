@@ -15,7 +15,7 @@ verified in a real browser, and what is deliberately left undone.
 | Header | Present on the live site? |
 |---|---|
 | `Strict-Transport-Security` | ✅ `max-age=31556952` (GitHub/Fastly adds it) |
-| `Access-Control-Allow-Origin` | ⚠️ `*` (GitHub Pages default — serves every asset to every origin) |
+| `Access-Control-Allow-Origin` | ✅ **removed on `pages.dev` 2026-10-28** (`!` detach rule in `_headers`); still `*` on `github.io` — GitHub's own default, not changeable here (M4) |
 | `Cache-Control`, `ETag`, `Age` | ✅ caching headers (GitHub default) |
 | `Content-Security-Policy` | ❌ **absent** |
 | `X-Content-Type-Options` | ❌ **absent** (MIME sniffing not prevented) |
@@ -306,11 +306,21 @@ between builds, each is generated from its own bytes.
    security assessment. A CSP is defence-in-depth; a clean console does **not** prove the
    absence of vulnerabilities.
 7. **`Access-Control-Allow-Origin: *`** was expected to disappear with the host change
-   (it is GitHub Pages' default). Measured after the cutover: it is **still present on
-   `irfanpdf.pages.dev`** too, and it does **not** come from our `_headers` (the file
-   declares no `Access-Control-Allow-Origin`). So it is the new host's own default as
-   well, and — like finding S2 — it is not configurable from this repository. Recorded
-   as observed; the exact Cloudflare-side mechanism was not verified.
+   (it is GitHub Pages' default). Measured after the cutover: it was **still present on
+   `irfanpdf.pages.dev`**, and it does **not** come from our `_headers` (the file declared
+   no `Access-Control-Allow-Origin`). This section therefore concluded it was "the new
+   host's own default … not configurable from this repository" — **that conclusion was
+   wrong, and it was never tested at the time** (the exact Cloudflare-side mechanism was
+   explicitly left unverified).
+   **Corrected 2026-10-28.** Cloudflare's `_headers` documentation states that headers
+   defined in the file "override what Cloudflare ordinarily sends", and that a header can
+   be *removed* by prepending `! `. Adding `! Access-Control-Allow-Origin` to the `/*`
+   rule removed it for real: re-measured on the live host across 5 URLs (including the
+   404 catch-all), the header is **absent**, `Cross-Origin-Resource-Policy: same-origin`
+   and the other 8 security headers are intact, and both the header checker and the
+   crawl still report `OVERALL: PASS`. The header had been vestigial throughout, since
+   `Cross-Origin-Resource-Policy: same-origin` already stopped other origins from reading
+   these responses. Full write-up: `PHASE2-RECORDS.md` §9.
 8. **Hosting caveat:** `_headers` is understood by **Cloudflare Pages and Netlify**.
    **Vercel does not read `_headers`** — a move there would need an equivalent
    `vercel.json`, which has not been written.

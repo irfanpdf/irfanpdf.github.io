@@ -224,8 +224,12 @@ Linux emits the same bytes as one large script — same content, different chunk
 by construction because `gen-headers` hashes the HTML from its own build; **do not copy an
 `_headers` file between the two builds.** Full write-up: `SECURITY-HARDENING.md` §5.5.
 
-**Also observed:** `Access-Control-Allow-Origin: *` is present on `pages.dev` as well,
-although our `_headers` never declares it — host default, not ours (finding S2).
+**Also observed, and later disproved (2026-10-28):** `Access-Control-Allow-Origin: *` was
+present on `pages.dev` even though our `_headers` never declared it, so it was written up
+here as an unavoidable host default (finding S2). It turned out to be removable: Cloudflare
+`_headers` values override what Cloudflare ordinarily sends, and `! <header-name>` detaches
+a header. The header is now absent on `pages.dev` (verified live); `github.io` still sends
+it from GitHub's own defaults.
 
 ---
 

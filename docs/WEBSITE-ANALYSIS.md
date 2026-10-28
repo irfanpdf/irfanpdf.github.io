@@ -126,13 +126,25 @@ verified afterwards that **both** hosts now serve canonical + `og:url` = `pages.
 `CLOUDFLARE-PAGES-MIGRATION.md` §2.4; the measured Windows/Linux build difference:
 `SECURITY-HARDENING.md` §5.5, §6.1.
 
-### S2 — LOW: `Access-Control-Allow-Origin: *` on every response
+### S2 — LOW: `Access-Control-Allow-Origin: *` on every response — **FIXED on `pages.dev`, verified live 2026-10-28**
 
-GitHub Pages serves the site's assets to any origin and this cannot be configured away
-from the repository. **Re-measured after the host move: still present on
-`irfanpdf.pages.dev`**, and it is not something our `_headers` declares — so it appears to
-be the new host's default as well. Not fixed; recorded as observed (the exact
-Cloudflare-side mechanism was not verified).
+**As found:** GitHub Pages served the site's assets to any origin, and after the host move
+the header was **still present on `irfanpdf.pages.dev`** although our `_headers` never
+declared it. At the time it was recorded as a host default and assumed not configurable
+from the repository — an assumption that was never tested.
+
+**Now fixed (Cloudflare side).** Cloudflare documents that `_headers` values override what
+Cloudflare ordinarily sends, and that `! <header-name>` detaches a header. One line —
+`! Access-Control-Allow-Origin` on the `/*` rule — removed it. Re-measured live across
+5 URLs (home, `/docs/contact/`, `sitemap.xml`, `security.txt`, and an unmatched 404
+route): the header is **absent on all of them**, `Cross-Origin-Resource-policy:
+same-origin` remains, the other 8 security headers are intact, and the header checker and
+crawl both still report `OVERALL: PASS`. Safe by construction: `Cross-Origin-Resource-
+policy: same-origin` had already blocked cross-origin reads, so the `*` was advertising an
+openness that browsers were not actually allowing.
+
+**Still open on `github.io`** — that host sends the header from GitHub's own defaults and
+cannot be changed from this repository (finding M4).
 
 ### S3 — LOW: no responsible-disclosure contact → **FIXED, verified live 2026-10-25**
 

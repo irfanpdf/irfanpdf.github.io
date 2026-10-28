@@ -201,6 +201,17 @@ const OTHER_HEADERS = [
   "Cross-Origin-Resource-Policy: same-origin",
   "X-Permitted-Cross-Domain-Policies: none",
   "Strict-Transport-Security: max-age=31536000; includeSubDomains",
+  // L1 (finding S2): detach the host's own default `Access-Control-Allow-Origin: *`.
+  // Cloudflare documents `! <header-name>` as the removal syntax and states that
+  // headers defined in `_headers` override what Cloudflare ordinarily sends, so
+  // this is configurable from this repository after all (SECURITY-HARDENING §7
+  // previously assumed it was not). The header is vestigial regardless:
+  // `Cross-Origin-Resource-Policy: same-origin` above already stops other
+  // origins from reading these responses, so removing it changes no behaviour
+  // for anyone — it only stops advertising an open cross-origin read.
+  // NOTE: this only affects Cloudflare Pages. `irfanpdf.github.io` sends the
+  // same header from GitHub's own defaults and cannot be changed here (M4).
+  "! Access-Control-Allow-Origin",
 ];
 
 // --- Tier 1: the catch-all ---------------------------------------------------

@@ -23,7 +23,7 @@ added to the account. Every control in this record is on a free tier.
 | H3 | Releases repo: signed installers | **OPEN** | Not part of this batch; unchanged from the Phase 1 finding |
 | M1 | Personal data in tracked docs | **PASS** (tree) / **PASS** (history, with a server-side caveat) | `git grep` at `HEAD` → 0; history rewritten 2026-10-27 → 0 in contents and messages across all 25 commits (§8). Caveat: old objects were still resolvable by SHA after the push (§8.6) |
 | M2 | Dependabot alerts + security updates | **PASS** | `vulnerability-alerts` and `automated-security-fixes` enabled and read back `enabled` on both repos |
-| M3 | Over-broad token scope | **OPEN** | Unchanged; checks continue to use the stored credential read in-memory only |
+| M3 | Over-broad token scope | **OPEN** — measured, decided, **not yet applied** | Credential measured in memory: OAuth token (`gho_`, 40 chars), scopes `gist, repo, workflow`, account-wide, admin on all 3 repos (§10.1). Owner chose a fine-grained PAT on 2 repos + revoking the old grant (§10.3). Replacement **NOT RUN** as of 2026-10-29 15:22 — five checks all read back the old token, entry untouched since 2026-10-22 (§10.4) |
 | M4 | `github.io` sends no custom headers | **OPEN** | Unchanged — that host is Cloudflare-free, so it serves no `_headers` (§5) |
 | M5 | Preview deployments publicly readable | **PASS** | "Restricted by a Cloudflare Access policy" in settings + live `302` to the Access login at the edge (§4.3) |
 | L1 | `Access-Control-Allow-Origin: *` on every response | **PASS** (`pages.dev`) / **OPEN** (`github.io`) | `!` detach rule added to the `/*` rule; header measured **absent** on 5 live URLs incl. the 404 catch-all, other 8 headers intact, checker + crawl PASS (§9). `github.io` sends it from GitHub's own defaults — tied to M4 |
@@ -354,12 +354,15 @@ Cloudflare zone or a `_headers`-capable host in front of it. Left open.
 | 2026-10-27 | Rewrite the local safety branch too, but **not** publish it | local-only, now `003b826`, PII-free |
 | 2026-10-27 | **Keep pre-rewrite SHAs in the docs** (declined to overwrite historical evidence) | old SHAs stay where they were measured; mapping table in §8.5 |
 | 2026-10-28 | **Remove the host default `Access-Control-Allow-Origin: *`** from `pages.dev` (L1) | one `!` detach line; deploy #20; header measured absent on 5 URLs (§9). `github.io` untouched |
+| 2026-10-29 | **Replace the over-broad token with a fine-grained PAT limited to 2 repositories** (`irfanpdf.github.io`, `irfanpdf-releases`; Contents R/W + Workflows R/W only) | decided and staged; **application NOT RUN** as of 2026-10-29 15:22 (§10.4) |
+| 2026-10-29 | **Revoke the old OAuth grant** once the replacement is proven working | sequenced after the replacement, so pushes never lose auth; not yet reached |
 
 Still undecided, each requiring its own explicit go-ahead:
 
 - **support channel** (currently the `security.txt` advisory form — final or not?);
 - **`github.io` future** (keep both hosts, or retire the header-less one);
-- H3 signed installers, M3 token scope, M4 github.io headers.
+- H3 signed installers, M4 github.io headers. (M3 token scope **is** decided —
+  §10.3; only applying it remains, and it needs the owner to run one command.)
 - **strengthen 2FA** — add TOTP (free app) and/or generate + store backup codes;
   email-only was the owner's choice for now (§4.2).
 - **old objects on GitHub's side** — the pre-rewrite commits were still
@@ -600,6 +603,111 @@ GitHub Pages' own default and cannot be changed from this repository (open findi
 - The `*` was Low severity to begin with; removing it reduces a real (if small) exposure
   and closes a documentation inaccuracy, and nothing more. It is not a substitute for the
   items still open.
+
+---
+
+## 10. M3 — over-broad token scope (measured 2026-10-29; **remediation not applied**)
+
+### 10.1 What the credential actually is
+
+Read from Windows Credential Manager **in memory only**. The value was never printed,
+logged or written to disk — only its type prefix and length were taken.
+
+| Property | Measured |
+|---|---|
+| Type | OAuth access token — prefix `gho_`, 40 characters. **Not a PAT**, so it cannot be narrowed; it can only be replaced |
+| Scopes (`X-OAuth-Scopes` on `/user`) | `gist`, `repo`, `workflow` |
+| Repositories visible | 3, every one with full administrative rights |
+| Private repositories today | 0 |
+| Where git reads it | the `github.com` credential entry git queries on push; a second entry exists that git's helper *writes back* to (distinguished by reading the store and watching which entry changed after a git operation) |
+| Age of the entry git reads | last written `2026-10-22 17:36:16` |
+
+### 10.2 Why it is more than this project needs
+
+- **`repo`** — read/write across every repository the account can reach, **including any
+  private repository created later**, plus repository administration (webhooks,
+  collaborators, settings). What the project actually needs: read/write on two named
+  repositories.
+- **`workflow`** — editing Actions workflow files. **Legitimately used here**:
+  `.github/workflows/backup.yml` is pushed from this repository, and a commit touching a
+  workflow file is rejected without it.
+- **`gist`** — creating and editing gists. Unrelated to this project; the clearest
+  least-privilege violation in the set.
+
+Exposure if this credential ever leaked: account-wide write authority plus an unrelated
+gist capability, extending silently to any future private repository. The practical
+exposure is currently limited by the fact that no private repositories exist — that is a
+circumstance, not a control.
+
+### 10.3 Decisions taken by the owner (2026-10-29)
+
+1. Replace it with a **fine-grained personal access token** scoped to exactly
+   `irfanpdf.github.io` and `irfanpdf-releases`, permissions **Contents: read/write** and
+   **Workflows: read/write** (Metadata auto-granted read-only), with an expiry date.
+2. **Revoke the old OAuth grant** (Settings → Applications → Authorized OAuth Apps) only
+   *after* the replacement is proven to work, so authentication is never lost in between.
+
+### 10.4 Remediation status — NOT RUN (measured, not assumed)
+
+**Status as of 2026-10-29 15:22 local: NOT APPLIED.** Every check between 14:44 and
+15:22 on 2026-10-29 read the credential store and the GitHub API directly, and every one
+returned the identical unchanged state:
+
+- stored credential `gho_`, 40 characters; entry last written `2026-10-22 17:36:16`;
+- no receipt file produced by the verification script;
+- `/user` still reports `gist, repo, workflow`;
+- still HTTP 200: gists, the full repository listing, an unselected third repository,
+  repository administration, webhooks, and the branch-protection endpoint.
+
+Two distinct causes, both real: the first attempts failed because **the replacement token
+had not been created yet**, so there was nothing to store; later attempts did not land
+either — the final check polled the credential entry every 10 seconds for 4 minutes with
+no change.
+
+Honest framing: this is a hardening step that has **not been carried out**, not a control
+that was claimed and later found missing. **Nothing is broken by it** — git
+authentication, the deploy workflow and the live site are unaffected, and no additional
+exposure is accruing: the credential is the same one in place since 2026-10-22.
+
+### 10.5 Staged and ready for when it is run
+
+- **Target** — the credential entry git actually reads on push, established by reading
+  the store and observing which entry git's helper writes back to, rather than assumed.
+- **`set-git-pat.ps1`** (local tooling) — refuses to run under a Windows account other
+  than the verifier's (each account has its own credential store, so a run elsewhere is
+  invisible to the verifier), writes both entries, requires the primary entry to read back
+  a value that is **not** the old token, runs `git ls-remote`, re-reads afterwards to
+  catch reversion, and leaves a receipt file containing **no secret** — prefix, timestamps
+  and verdict only.
+- **One-line alternative** — `cmdkey /generic:git:https://github.com /user:irfanpdf
+  /pass`, where `/pass` with no value is what makes it prompt.
+- **Pass criteria for the next check**: entry timestamp moves off `2026-10-22`; prefix
+  becomes `github_pat_`; `/user` no longer reports `gist, repo, workflow`; gists,
+  repository listing, the unselected repository, administration, webhooks and branch
+  protection all blocked; both selected repositories `200`; `git push --dry-run` succeeds.
+
+### 10.6 Errors made on this item and caught in session
+
+Disclosed because this record must state mistakes, and none of these were harmless by
+default:
+
+1. **A success gate that could not fail.** The first verification script declared success
+   on any successful write plus a `git ls-remote` — and the *old* token satisfied that
+   probe too, so it could report success without proving anything. Replaced with a gate
+   requiring the primary entry to read back a non-old value before **and** after the
+   probe.
+2. **12 characters of the old token were printed** instead of 4, from an oversized
+   substring in a diagnostic line. The old token is exactly the credential scheduled for
+   revocation, which limits the impact but does not excuse it.
+3. **A username-masking regex failed**, printing an unmasked local username where
+   `<local-user>` was required.
+4. **A timestamp was rendered wrongly** (hand-rolled `FILETIME` conversion), corrected to
+   `DateTime.FromFileTime`.
+5. **Three PowerShell parsing mistakes** (`$Matches` clobbered by a second `-match`, plus
+   two fragile parses) produced "none found" where entries existed; each was re-run
+   correctly once the error was spotted.
+
+None of these touched the repository, the live site or any remote configuration.
 
 *No scan or test can guarantee freedom from viruses on any device, including
 visitors' machines. This document records what was run, and what was not.*

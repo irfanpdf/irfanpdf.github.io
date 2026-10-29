@@ -19,6 +19,7 @@ added to the account. Every control in this record is on a free tier.
 | ID | Control | Status | One-line evidence |
 |----|---------|--------|-------------------|
 | H1 | Cloudflare account 2FA | **PASS** (email method) | Re-read from `/profile/access-management/authentication/two-factor` after a full reload: *"Email two-factor authentication is active"*, button reads `Disable` (§4.2). Weaker than TOTP — residual-risk note in §4.2 |
+| GH-2FA | GitHub account 2FA | **PASS** (TOTP + recovery codes + passkey; **owner-reported**, not API-verifiable) | Enabled 2026-10-29; owner read back Settings → Password and authentication showing `Disable two-factor authentication`, recovery codes saved, passkey added. The API cannot confirm it — `/user` returns no 2FA field and GraphQL rejects `viewer.twoFactorAuthentication` (§11.4) |
 | H2 | Branch protection on `main`, both repos | **PASS** | Read back from the API: PR required, 0 approvals, no force-push, no deletions, admin bypass retained |
 | H3 | Releases repo: signed installers | **OPEN** | Not part of this batch; unchanged from the Phase 1 finding |
 | M1 | Personal data in tracked docs | **PASS** (tree) / **PASS** (history, with a server-side caveat) | `git grep` at `HEAD` → 0; history rewritten 2026-10-27 → 0 in contents and messages across all 25 commits (§8). Caveat: old objects were still resolvable by SHA after the push (§8.6) |
@@ -251,8 +252,11 @@ A second, independent read after another navigation returned the same two facts
   **Security Key** remain unconfigured — both are free (TOTP app) and available
   as a later strengthening step. A hardware key would cost money and is excluded
   by the zero-cost constraint.
-- GitHub account 2FA was **not** changed in this engagement and its status is
-  **NOT RUN** — not claimed either way.
+- ~~GitHub account 2FA was **not** changed in this engagement and its status is
+  **NOT RUN** — not claimed either way.~~ **Superseded 2026-10-29:** GitHub
+  account 2FA **was** enabled afterwards (TOTP + recovery codes + passkey) —
+  §11. This line is kept visible rather than deleted so the record shows what
+  was true when it was written.
 
 The codes themselves are never read into any log, file or message by this
 assistant; only the owner sees them, in their own mailbox.
@@ -356,6 +360,7 @@ Cloudflare zone or a `_headers`-capable host in front of it. Left open.
 | 2026-10-28 | **Remove the host default `Access-Control-Allow-Origin: *`** from `pages.dev` (L1) | one `!` detach line; deploy #20; header measured absent on 5 URLs (§9). `github.io` untouched |
 | 2026-10-29 | **Replace the over-broad token with a fine-grained PAT limited to 2 repositories** (`irfanpdf.github.io`, `irfanpdf-releases`; Contents R/W + Workflows R/W only) | decided and staged; **application NOT RUN** as of 2026-10-29 15:22 (§10.4) |
 | 2026-10-29 | **Revoke the old OAuth grant** once the replacement is proven working | sequenced after the replacement, so pushes never lose auth; not yet reached |
+| 2026-10-29 | **Enable GitHub account 2FA** (previously declined, then NOT RUN) — TOTP app + recovery codes + passkey | High finding closed as PASS, **owner-reported** and explicitly not API-verifiable (§11). Cost ₹0 |
 
 Still undecided, each requiring its own explicit go-ahead:
 
@@ -364,7 +369,9 @@ Still undecided, each requiring its own explicit go-ahead:
 - H3 signed installers, M4 github.io headers. (M3 token scope **is** decided —
   §10.3; only applying it remains, and it needs the owner to run one command.)
 - **strengthen 2FA** — add TOTP (free app) and/or generate + store backup codes;
-  email-only was the owner's choice for now (§4.2).
+  email-only was the owner's choice for now (§4.2). *This applies to the
+  **Cloudflare** account; the **GitHub** account now has TOTP + codes + passkey
+  (§11).*
 - **old objects on GitHub's side** — the pre-rewrite commits were still
   resolvable by SHA after the push (§8.6); either wait for GitHub's internal GC
   or ask Support to expire them (free).
@@ -708,6 +715,75 @@ default:
    correctly once the error was spotted.
 
 None of these touched the repository, the live site or any remote configuration.
+
+---
+
+## 11. GitHub account 2FA — enabled 2026-10-29 (owner-reported)
+
+The brief did not assign this an ID; it is labelled **GH-2FA** here. It was the
+remaining High-severity account-level control — Cloudflare's equivalent is H1
+(§4.2), and GitHub's had been recorded as **NOT RUN**.
+
+### 11.1 What the documentation says (checked 2026-10-29, not relied on from memory)
+
+- Two-factor authentication is configured with a **TOTP app** (recommended) or, where
+  offered, by text message.
+- **Passkeys and security keys may only be added after 2FA is already configured** —
+  they cannot be the first method.
+- **Recovery codes** are downloaded during setup and can be regenerated later; GitHub
+  recommends keeping more than one method configured.
+- Critically: *"having access to the email address alone isn't enough to bypass 2FA"*,
+  and **GitHub Support cannot restore access when all 2FA credentials and recovery
+  methods are lost**. The recovery codes are load-bearing, not a formality.
+- There is **no email-based** 2FA option on GitHub, so the choice made for Cloudflare
+  (email, H1) was not available here.
+
+### 11.2 What was done (2026-10-29, all free)
+
+1. A TOTP application (free) was configured and its code verified on GitHub.
+2. **Recovery codes were downloaded and stored by the owner.** They are never shown to
+   this assistant, never written into any log, file, message or archive — consistent
+   with `BACKUP-RESTORE.md` §7, which deliberately excludes them.
+3. A **passkey** was added as a second method, satisfying both password and 2FA at
+   sign-in.
+
+Cost: **₹0** — no plan upgrade, no paid add-on, no payment method.
+
+### 11.3 Why this cannot be verified through the API (measured)
+
+| Route attempted | Result |
+|---|---|
+| REST `GET /user` with the stored credential | **no 2FA field present at all** — the key is absent from the body, so it is neither `true` nor `false` |
+| GraphQL `viewer { twoFactorAuthentication }` | **rejected**: `Field 'twoFactorAuthentication' doesn't exist on type 'User'` (the field is organisation-scoped, not on the base user object) |
+| In-app browser → `github.com/settings/…` | the page now loads (an earlier certificate error no longer occurred), but that browser session is **not signed in**, so GitHub returns 404 for settings — no independent read |
+| git / HTTP probes | not applicable by design: HTTPS operations use the stored token, which 2FA does not invalidate (confirmed — `git ls-remote` and `git push --dry-run` still succeed) |
+
+### 11.4 Verification used, stated exactly
+
+**Owner-reported.** The owner opened Settings → **Access → Password and
+authentication** in their own browser and read the Two-factor authentication section,
+reporting that it shows `Disable two-factor authentication` — i.e. 2FA is on — with
+recovery codes saved and a passkey added.
+
+This is **weaker evidence than H1**, which was re-read from the Cloudflare page itself.
+It is recorded as **PASS (owner-reported, not API-verified)** so that nobody reading
+this later mistakes it for an independent measurement.
+
+**What this does not establish:**
+
+- that the recovery codes are stored somewhere the owner can still reach (only the
+  owner can know);
+- that the passkey still authenticates (it has not been exercised);
+- whether the recovery codes remain valid if 2FA is ever reconfigured — regenerating
+  codes invalidates the previous set.
+
+### 11.5 Residual risk and what remains open
+
+- With TOTP **and** a passkey **and** recovery codes there is no single point of
+  failure, but losing the authenticator device *and* the codes together means GitHub
+  Support cannot help — the account would be unrecoverable in that scenario.
+- The **Cloudflare** account still has email-only 2FA with no backup codes generated
+  (§4.2) — a separate account, separate follow-up, still free to fix.
 
 *No scan or test can guarantee freedom from viruses on any device, including
 visitors' machines. This document records what was run, and what was not.*

@@ -24,7 +24,7 @@ added to the account. Every control in this record is on a free tier.
 | H3 | Releases repo: signed installers | **OPEN** | Not part of this batch; unchanged from the Phase 1 finding |
 | M1 | Personal data in tracked docs | **PASS** (tree) / **PASS** (history, with a server-side caveat) | `git grep` at `HEAD` → 0; history rewritten 2026-10-27 → 0 in contents and messages across all 25 commits (§8). Caveat: old objects were still resolvable by SHA after the push (§8.6) |
 | M2 | Dependabot alerts + security updates | **PASS** | `vulnerability-alerts` and `automated-security-fixes` enabled and read back `enabled` on both repos |
-| M3 | Over-broad token scope | **OPEN** — measured, decided, **not yet applied** | Credential measured in memory: OAuth token (`gho_`, 40 chars), scopes `gist, repo, workflow`, account-wide, admin on all 3 repos (§10.1). Owner chose a fine-grained PAT on 2 repos + revoking the old grant (§10.3). Replacement **NOT RUN** as of 2026-10-29 15:22 — five checks all read back the old token, entry untouched since 2026-10-22 (§10.4) |
+| M3 | Over-broad token scope | **OPEN** — measured, decided, **not applicable from this environment** | Credential measured in memory: OAuth token (`gho_`, 40 chars), scopes `gist, repo, workflow`, account-wide, admin on all 3 repos (§10.1). Owner chose a fine-grained PAT on 2 repos + revoking the old grant (§10.3). Replacement **NOT APPLIED** — every check on 2026-10-29 between 14:40 and 16:50 read back the old token, entry untouched since 2026-10-22; cause: no shell available in the owner's environment (§10.4) |
 | M4 | `github.io` sends no custom headers | **OPEN** | Unchanged — that host is Cloudflare-free, so it serves no `_headers` (§5) |
 | M5 | Preview deployments publicly readable | **PASS** | "Restricted by a Cloudflare Access policy" in settings + live `302` to the Access login at the edge (§4.3) |
 | L1 | `Access-Control-Allow-Origin: *` on every response | **PASS** (`pages.dev`) / **OPEN** (`github.io`) | `!` detach rule added to the `/*` rule; header measured **absent** on 5 live URLs incl. the 404 catch-all, other 8 headers intact, checker + crawl PASS (§9). `github.io` sends it from GitHub's own defaults — tied to M4 |
@@ -358,7 +358,8 @@ Cloudflare zone or a `_headers`-capable host in front of it. Left open.
 | 2026-10-27 | Rewrite the local safety branch too, but **not** publish it | local-only, now `003b826`, PII-free |
 | 2026-10-27 | **Keep pre-rewrite SHAs in the docs** (declined to overwrite historical evidence) | old SHAs stay where they were measured; mapping table in §8.5 |
 | 2026-10-28 | **Remove the host default `Access-Control-Allow-Origin: *`** from `pages.dev` (L1) | one `!` detach line; deploy #20; header measured absent on 5 URLs (§9). `github.io` untouched |
-| 2026-10-29 | **Replace the over-broad token with a fine-grained PAT limited to 2 repositories** (`irfanpdf.github.io`, `irfanpdf-releases`; Contents R/W + Workflows R/W only) | decided and staged; **application NOT RUN** as of 2026-10-29 15:22 (§10.4) |
+| 2026-10-29 | **Replace the over-broad token with a fine-grained PAT limited to 2 repositories** (`irfanpdf.github.io`, `irfanpdf-releases`; Contents R/W + Workflows R/W only) | decided and staged; **NOT APPLIED** — no shell available in the owner's environment, checked through 2026-10-29 16:50 (§10.4) |
+| 2026-10-29 | **Park the M3 application** rather than keep attempting it | stays OPEN and honestly recorded; needs a machine/session where a command or the Credential Manager GUI can actually be used |
 | 2026-10-29 | **Revoke the old OAuth grant** once the replacement is proven working | sequenced after the replacement, so pushes never lose auth; not yet reached |
 | 2026-10-29 | **Enable GitHub account 2FA** (previously declined, then NOT RUN) — TOTP app + recovery codes + passkey | High finding closed as PASS, **owner-reported** and explicitly not API-verifiable (§11). Cost ₹0 |
 
@@ -366,8 +367,12 @@ Still undecided, each requiring its own explicit go-ahead:
 
 - **support channel** (currently the `security.txt` advisory form — final or not?);
 - **`github.io` future** (keep both hosts, or retire the header-less one);
-- H3 signed installers, M4 github.io headers. (M3 token scope **is** decided —
-  §10.3; only applying it remains, and it needs the owner to run one command.)
+- H3 signed installers, M4 github.io headers.
+- **applying the M3 remediation** — the scope decision is settled (§10.3) and the
+  tooling is staged (§10.5), but it needs a machine or session where the owner can
+  actually run a command or open Credential Manager; none of the three routes
+  (PowerShell, `cmd`, GUI) was executable here (§10.4). Decide whether to attempt
+  it from another session or leave it parked.
 - **strengthen 2FA** — add TOTP (free app) and/or generate + store backup codes;
   email-only was the owner's choice for now (§4.2). *This applies to the
   **Cloudflare** account; the **GitHub** account now has TOTP + codes + passkey
@@ -654,22 +659,37 @@ circumstance, not a control.
 2. **Revoke the old OAuth grant** (Settings → Applications → Authorized OAuth Apps) only
    *after* the replacement is proven to work, so authentication is never lost in between.
 
-### 10.4 Remediation status — NOT RUN (measured, not assumed)
+### 10.4 Remediation status — NOT APPLIED (measured, not assumed)
 
-**Status as of 2026-10-29 15:22 local: NOT APPLIED.** Every check between 14:44 and
-15:22 on 2026-10-29 read the credential store and the GitHub API directly, and every one
-returned the identical unchanged state:
+**Status as of 2026-10-29 16:50 local: NOT APPLIED.** Every check on 2026-10-29
+between **14:40 and 16:50** read the credential store and the GitHub API directly —
+nine verification rounds in total — and every one returned the identical unchanged
+state:
 
-- stored credential `gho_`, 40 characters; entry last written `2026-10-22 17:36:16`;
+- stored credential `gho_`, 40 characters; the entry git reads last written
+  `2026-10-22 17:36:16` (a week before this session);
 - no receipt file produced by the verification script;
 - `/user` still reports `gist, repo, workflow`;
 - still HTTP 200: gists, the full repository listing, an unselected third repository,
   repository administration, webhooks, and the branch-protection endpoint.
 
-Two distinct causes, both real: the first attempts failed because **the replacement token
-had not been created yet**, so there was nothing to store; later attempts did not land
-either — the final check polled the credential entry every 10 seconds for 4 minutes with
-no change.
+**The real cause, stated plainly:** the remediation step was **never executable in the
+owner's environment** — the owner reported *"I can't run PowerShell here"*. Three
+routes were attempted in sequence, and none produced any change in the credential
+store, each confirmed by watching the entry every 10 seconds for 4–7 minutes:
+
+1. a PowerShell script (`set-git-pat.ps1`, identity-gated, receipt-writing);
+2. `cmd` with `cmdkey … /pass` (a native Windows utility, offered after PowerShell was
+   reported unavailable);
+3. the Credential Manager GUI (`control /name Microsoft.CredentialManager`, editing the
+   existing entry in place — no command prompt at all).
+
+A secondary, earlier cause was also real: the first attempts preceded the creation of
+the replacement token, so there was nothing to store at that point. Either way the
+measured end state is the same. The owner's own account of what happened changed
+across the session — four completion reports, then the honest answer that nothing had
+been run — and this record relies on the **machine measurements**, which were
+consistent throughout, rather than on any of those reports.
 
 Honest framing: this is a hardening step that has **not been carried out**, not a control
 that was claimed and later found missing. **Nothing is broken by it** — git
@@ -688,6 +708,10 @@ exposure is accruing: the credential is the same one in place since 2026-10-22.
   and verdict only.
 - **One-line alternative** — `cmdkey /generic:git:https://github.com /user:irfanpdf
   /pass`, where `/pass` with no value is what makes it prompt.
+- **No-shell alternative** — Credential Manager GUI (`Win+R` →
+  `control /name Microsoft.CredentialManager` → Windows Credentials → the entry with
+  address exactly `git:https://github.com`, not the `irfanpdf@` duplicate → Edit →
+  paste into Password → Save). Attempted 2026-10-29; also produced no change (§10.4).
 - **Pass criteria for the next check**: entry timestamp moves off `2026-10-22`; prefix
   becomes `github_pat_`; `/user` no longer reports `gist, repo, workflow`; gists,
   repository listing, the unselected repository, administration, webhooks and branch

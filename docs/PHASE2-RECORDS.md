@@ -25,9 +25,9 @@ added to the account. Every control in this record is on a free tier.
 | M1 | Personal data in tracked docs | **PASS** (tree) / **PASS** (history, with a server-side caveat) | `git grep` at `HEAD` → 0; history rewritten 2026-10-27 → 0 in contents and messages across all 25 commits (§8). Caveat: old objects were still resolvable by SHA after the push (§8.6) |
 | M2 | Dependabot alerts + security updates | **PASS** | `vulnerability-alerts` and `automated-security-fixes` enabled and read back `enabled` on both repos |
 | M3 | Over-broad token scope | **OPEN** — measured, decided, **not applicable from this environment** | Credential measured in memory: OAuth token (`gho_`, 40 chars), scopes `gist, repo, workflow`, account-wide, admin on all 3 repos (§10.1). Owner chose a fine-grained PAT on 2 repos + revoking the old grant (§10.3). Replacement **NOT APPLIED** — every check on 2026-10-29 between 14:40 and 16:50 read back the old token, entry untouched since 2026-10-22; cause: no shell available in the owner's environment (§10.4) |
-| M4 | `github.io` sends no custom headers | **OPEN** | Unchanged — that host is Cloudflare-free, so it serves no `_headers` (§5) |
+| M4 | `github.io` sends no custom headers | **PASS** (closed by retiring the host, 2026-10-30) | GitHub Pages **unpublished** → the host now returns `404` on `/`, `/features/`, `/sitemap.xml` and `/security.txt`, so it serves no page that could lack headers (§12). The underlying limitation stands: that host *cannot* serve custom headers — retiring it was the only in-repo route to closing this (§12.2) |
 | M5 | Preview deployments publicly readable | **PASS** | "Restricted by a Cloudflare Access policy" in settings + live `302` to the Access login at the edge (§4.3) |
-| L1 | `Access-Control-Allow-Origin: *` on every response | **PASS** (`pages.dev`) / **OPEN** (`github.io`) | `!` detach rule added to the `/*` rule; header measured **absent** on 5 live URLs incl. the 404 catch-all, other 8 headers intact, checker + crawl PASS (§9). `github.io` sends it from GitHub's own defaults — tied to M4 |
+| L1 | `Access-Control-Allow-Origin: *` on every response | **PASS** (both hosts) | `!` detach rule on `pages.dev`: header measured **absent** on 5 live URLs incl. the 404 catch-all, other 8 headers intact, checker + crawl PASS (§9). `github.io` half closed 2026-10-30 by unpublishing: header measured **absent** there too, because the host now 404s (§12) |
 | — | Account WAF / rate limiting | **NOT APPLICABLE** (today) | WAF rules attach to a zone we own; this project owns no zone. Paid add-on deliberately not bought (§5) |
 | — | Security notifications | **PASS** (1 live) | Incident alert listed as `Cloudflare Status / Email / Enabled`; other alert types N/A (§4.4) |
 | F | Backup & restore capability | **PASS** | Restore re-ran `npm ci` + typecheck + 206 tests + build from a fresh clone (§3) |
@@ -332,8 +332,11 @@ included with `pages.dev`, our own strict `_headers` policy (hash-constrained CS
 1,409 chars / 20 hashes on the catch-all), GitHub's DDoS protection on the second
 host, plus branch protection, secret scanning and push protection.
 
-`github.io` still sends no custom security headers (M4) — it cannot, without a
-Cloudflare zone or a `_headers`-capable host in front of it. Left open.
+~~`github.io` still sends no custom security headers (M4) — it cannot, without a
+Cloudflare zone or a `_headers`-capable host in front of it. Left open.~~
+**Superseded 2026-10-29 → 2026-10-30:** the host was unpublished instead, so
+neither M4 nor L1 can apply to it any more (§12). The platform limitation
+itself remains true — GitHub Pages still cannot serve custom headers.
 
 ---
 
@@ -362,12 +365,16 @@ Cloudflare zone or a `_headers`-capable host in front of it. Left open.
 | 2026-10-29 | **Park the M3 application** rather than keep attempting it | stays OPEN and honestly recorded; needs a machine/session where a command or the Credential Manager GUI can actually be used |
 | 2026-10-29 | **Revoke the old OAuth grant** once the replacement is proven working | sequenced after the replacement, so pushes never lose auth; not yet reached |
 | 2026-10-29 | **Enable GitHub account 2FA** (previously declined, then NOT RUN) — TOTP app + recovery codes + passkey | High finding closed as PASS, **owner-reported** and explicitly not API-verifiable (§11). Cost ₹0 |
+| 2026-10-30 | **Retire `irfanpdf.github.io`** — unpublish the GitHub Pages site (Option A chosen over redirect stubs / keep-both, after the API's 422 proved a settings-toggle disable impossible for a user-site repo) | host measured `404` on 4 routes; `ACAO: *` **absent** → M4 and the `github.io` half of L1 closed (§12). `pages.dev` untouched at `200` |
+| 2026-10-30 | **Disable the `deploy-site-to-pages` workflow** (disable, not delete — GitHub warned the site "will not prevent it from being rebuilt") | `state=disabled_manually`, read back; `backup-and-verify` still `active` (§12.3). Reversible |
 
 Still undecided, each requiring its own explicit go-ahead:
 
 - **support channel** (currently the `security.txt` advisory form — final or not?);
-- **`github.io` future** (keep both hosts, or retire the header-less one);
-- H3 signed installers, M4 github.io headers.
+- ~~**`github.io` future** (keep both hosts, or retire the header-less one);~~
+  **Decided 2026-10-30: retired** — unpublished, workflow disabled (§12).
+- H3 signed installers. (M4 github.io headers: **closed by retirement 2026-10-30** —
+  §12.)
 - **applying the M3 remediation** — the scope decision is settled (§10.3) and the
   tooling is staged (§10.5), but it needs a machine or session where the owner can
   actually run a command or open Credential Manager; none of the three routes
@@ -605,6 +612,8 @@ both hosts and both `security.txt` → 200; preview namespace → still `302`.
 
 For contrast, `irfanpdf.github.io` still sends `Access-Control-Allow-Origin: *` — that is
 GitHub Pages' own default and cannot be changed from this repository (open finding M4).
+*(Superseded 2026-10-30: that host is unpublished now and returns `404` with no such
+header — measured in §12.)*
 
 ### 9.6 Limits, stated plainly
 
@@ -808,6 +817,89 @@ this later mistakes it for an independent measurement.
   Support cannot help — the account would be unrecoverable in that scenario.
 - The **Cloudflare** account still has email-only 2FA with no backup codes generated
   (§4.2) — a separate account, separate follow-up, still free to fix.
+
+---
+
+## 12. Retiring `irfanpdf.github.io` — M4 and L1's second half (2026-10-30)
+
+### 12.1 What was decided, and over what
+
+Three options were put to the owner with their trade-offs written out: **retire the
+host** (closes both findings, old links break, reversible), **redirect stubs** (links
+survive as a soft redirect, but GitHub's default `ACAO: *` rides on stub responses too,
+so the findings would *not* close), and **keep both** (findings stay open forever). The
+owner chose **retire** — the only route that actually closes M4 and L1 together — on
+2026-10-30.
+
+The SEO objection that had kept "run both" in force since 2026-10-25 was re-checked
+rather than assumed: canonical, `og:url` and all 17 sitemap entries already pointed at
+`pages.dev` on both hosts, and the built site contained **zero** references to the
+`irfanpdf.github.io` host (the only matches are repo URLs inside `security.txt`, which
+are `github.com/irfanpdf/…` links, unaffected by retiring Pages).
+
+### 12.2 The route GitHub forced, measured
+
+The plan's premise — "one settings toggle" — was **wrong**, and the record says so:
+
+| Attempt | Result |
+|---|---|
+| `DELETE /repos/irfanpdf/irfanpdf.github.io/pages` (REST) | **HTTP 422** — *"Deactivating GitHub pages for this repository is not allowed."* Config read back unchanged (`status: built`) |
+| GitHub community discussion #22018 (checked) | confirms user-site repos (`<username>.github.io`) cannot be deactivated this way |
+| Settings → Pages → **Unpublish site** (owner signed in; UI is the supported route for user sites) | **"GitHub Pages unpublished."** |
+
+GitHub's own confirmation dialog is quoted because it shaped the next step:
+*"Unpublishing will remove this GitHub Pages site and prevent it from being served, but
+it will not prevent it from being rebuilt. To completely disable the site, remove the
+GitHub Actions workflow that builds the page."*
+
+### 12.3 The second step — stopping the rebuild (approved separately)
+
+Instead of deleting the workflow file (which would remove source the brief says to
+preserve), the workflow was **disabled**, keeping it reversible:
+
+| Workflow | Before | After (read back) |
+|---|---|---|
+| `deploy-site-to-pages` (`.github/workflows/deploy.yml`) | `active` | **`disabled_manually`** |
+| `backup-and-verify` | `active` | `active` (untouched) |
+| `pages-build-deployment` (GitHub's own) | `active` | `active` (untouched) |
+
+Method note: the first disable call used `POST` and returned **404** (wrong verb for
+that route); `PUT` returned **204**. Caught by reading the state back rather than by
+assuming — the read-back is what shows `disabled_manually`.
+
+### 12.4 Before/after, measured live
+
+| URL | Before | After (2026-10-30 10:40) |
+|---|---|---|
+| `https://irfanpdf.github.io/` | `200` + `ACAO: *` + HSTS, no CSP/nosniff/XFO | **`404`** |
+| `…/features/` | `200` | **`404`** |
+| `…/sitemap.xml` | `200` | **`404`** |
+| `…/security.txt` | `200` | **`404`** |
+| `Access-Control-Allow-Origin` | `*` (GitHub default) | **absent** |
+| GitHub's 404 response headers | — | restrictive CSP (`default-src 'none'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'`), no ACAO, no HSTS, no body-level scripts |
+| `https://irfanpdf.pages.dev/` | `200` | **`200` — untouched** |
+
+### 12.5 What this closes — and how it closes it
+
+- **M4 → PASS**, and **L1 (`github.io` half) → PASS** — but honestly: they close
+  because **the content is gone**, not because that host was ever hardened. If the site
+  is ever re-published there without a header-capable layer in front, both findings
+  **reopen immediately**. The platform limitation behind them (GitHub Pages serves no
+  custom headers from the repository) is unchanged and still true.
+- SEO/links: any external link to `irfanpdf.github.io` now lands on GitHub's 404.
+  Third-party references cannot be inventoried from here — search engines and referrers
+  know, not this session.
+
+### 12.6 Rollback (owner-only, ~2 minutes, no data touched)
+
+1. Settings → Pages → **Publish site** (the site rebuilds from the same `main`);
+2. Actions → `deploy-site-to-pages` → **Enable workflow**;
+3. verify: `node scripts/check-live-headers.mjs` / `node crawl.js` are for `pages.dev`;
+   for `github.io` re-check `/` returns `200`.
+
+The repository itself was never modified for this retirement: no commit, no file
+change, no protection/Dependabot/visibility change — only Pages publishing state and a
+workflow enable-flag, both on GitHub's side, both reversible.
 
 *No scan or test can guarantee freedom from viruses on any device, including
 visitors' machines. This document records what was run, and what was not.*

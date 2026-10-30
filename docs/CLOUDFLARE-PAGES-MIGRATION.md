@@ -125,6 +125,15 @@ links never break); Cloudflare serves `irfanpdf.pages.dev` with the headers, and
 consolidate there. Verified after the cutover: `irfanpdf.github.io` → 200,
 `Server: GitHub.com`, no CSP.
 
+> **Superseded 2026-10-30 — the owner reversed "run both" and retired the old host.**
+> GitHub Pages was **unpublished** (site now `404`, `ACAO: *` gone) and the
+> `deploy-site-to-pages` workflow disabled so it cannot rebuild. Canonical/OG/sitemap
+> were already pointing at `pages.dev` on both hosts and the built site referenced the
+> old host nowhere (the `security.txt` matches are `github.com/…` repo links), so the
+> SEO premises of this decision had already been satisfied before it was reversed.
+> Full record, measurements and rollback: `PHASE2-RECORDS.md` §12. This section is kept
+> unchanged below so the history of the decision survives.
+
 **Side-effect found by measuring, then FIXED the same day (2026-10-25):** the GitHub
 Pages build has its own `SITE_URL` repository variable, so initially **each host declared
 itself canonical** — `github.io` → `github.io`, `pages.dev` → `pages.dev` — and engines
@@ -189,8 +198,9 @@ being the only origin.
   and `includeSubDomains` HSTS becomes meaningful.
 - **S3** (`security.txt`) — **DONE 2026-10-25** (GitHub private vulnerability reporting as
   the contact; 200 on both hosts, RFC fields verified) — see `WEBSITE-ANALYSIS.md` §2 S3.
-- **`irfanpdf.github.io`'s fate** (§2.4): "run both" is in force; disabling GitHub Pages
-  remains an SEO decision.
+- **`irfanpdf.github.io`'s fate** (§2.4): ~~"run both" is in force; disabling GitHub Pages
+  remains an SEO decision.~~ **Decided 2026-10-30: retired** — Pages unpublished, deploy
+  workflow disabled; see `PHASE2-RECORDS.md` §12.
 - **Conflicting canonicals** (§2.4): **fixed 2026-10-25** — `SITE_URL` variable changed to
   `https://irfanpdf.pages.dev`, workflow re-run, both hosts verified pointing canonical +
   `og:url` + sitemap at the new URL. Nothing further to do here.
@@ -213,7 +223,7 @@ being the only origin.
 | Browser, 7 routes | **0 CSP violations / 0 console errors**; theme toggle, assistant, SPA nav work |
 | Headers on `/` | `Server: cloudflare` + `CF-RAY`; CSP (both tiers, comma-joined), `nosniff`, `DENY`, `Referrer-Policy`, `Permissions-Policy`, COOP, CORP, `X-Permitted-Cross-Domain-Policies`, HSTS |
 | Env vars | canonical/`og:url` = `pages.dev`, sitemap 2,929 B, three working download links |
-| `irfanpdf.github.io` | still 200 / `Server: GitHub.com` / no CSP ("run both") |
+| `irfanpdf.github.io` | ~~still 200 / `Server: GitHub.com` / no CSP ("run both")~~ → **`404` since 2026-10-30** (unpublished; `PHASE2-RECORDS.md` §12) |
 | Canonical unification (later the same day, approved) | Actions `SITE_URL` variable changed to `https://irfanpdf.pages.dev` + run #6 re-run → **both** hosts now serve canonical/`og:url` = `pages.dev`, deep-page canonicals and the 17-entry sitemap included (evidence table in §2.4) |
 
 **Measured quirk, recorded rather than smoothed over:** the Cloudflare (Linux) build
@@ -229,7 +239,8 @@ present on `pages.dev` even though our `_headers` never declared it, so it was w
 here as an unavoidable host default (finding S2). It turned out to be removable: Cloudflare
 `_headers` values override what Cloudflare ordinarily sends, and `! <header-name>` detaches
 a header. The header is now absent on `pages.dev` (verified live); `github.io` still sends
-it from GitHub's own defaults.
+it from GitHub's own defaults. *(Update 2026-10-30: `github.io` was unpublished, so it
+sends no such header any more — `404`, measured in `PHASE2-RECORDS.md` §12.)*
 
 ---
 

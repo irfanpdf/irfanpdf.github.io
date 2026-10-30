@@ -61,7 +61,7 @@ In `irfanpdf.github.io`:
 
 | Name | Value |
 |---|---|
-| `SITE_URL` | `https://irfanpdf.pages.dev` *(changed 2026-10-25 — the site's canonical host after the Cloudflare Pages move; was `https://irfanpdf.github.io`. Both hosts still serve, but both advertise `pages.dev` as canonical. See `CLOUDFLARE-PAGES-MIGRATION.md` §2.4.)* |
+| `SITE_URL` | `https://irfanpdf.pages.dev` *(changed 2026-10-25 — the site's canonical host after the Cloudflare Pages move; was `https://irfanpdf.github.io`. Both hosts still serve, but both advertise `pages.dev` as canonical. See `CLOUDFLARE-PAGES-MIGRATION.md` §2.4. **Update 2026-10-30:** GitHub Pages was unpublished, so this host now `404`s — `pages.dev` is the only live host. `PHASE2-RECORDS.md` §12.)* |
 | `DOWNLOAD_BASE_URL` | `https://github.com/irfanpdf/irfanpdf-releases/releases/download/v1.7.0/` |
 
 (The workflow passes them to the build as `NEXT_PUBLIC_SITE_URL` /
@@ -86,6 +86,9 @@ In `irfanpdf.github.io`:
 * `https://irfanpdf.github.io/` loads, all 17 routes reachable (run
   `node crawl.js https://irfanpdf.github.io` — it checks routes, internal links, local
   assets, the 404 status and the content checks, and prints OVERALL PASS/FAIL).
+  *(2026-10-30: this host is unpublished now and returns 404, so those checks no longer
+  apply to it. Run them against the live host instead:
+  `node crawl.js https://irfanpdf.pages.dev`.)*
 * Every page's canonical points at `https://irfanpdf.pages.dev/...` (the canonical host
   since the Cloudflare Pages move — this holds on **both** hosts, including the
   `irfanpdf.github.io` copy).

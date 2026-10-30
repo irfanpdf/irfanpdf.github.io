@@ -15,7 +15,7 @@ verified in a real browser, and what is deliberately left undone.
 | Header | Present on the live site? |
 |---|---|
 | `Strict-Transport-Security` | ✅ `max-age=31556952` (GitHub/Fastly adds it) |
-| `Access-Control-Allow-Origin` | ✅ **removed on `pages.dev` 2026-10-28** (`!` detach rule in `_headers`); still `*` on `github.io` — GitHub's own default, not changeable here (M4) |
+| `Access-Control-Allow-Origin` | ✅ **removed on `pages.dev` 2026-10-28** (`!` detach rule in `_headers`); ~~still `*` on `github.io` — GitHub's own default, not changeable here (M4)~~ → **removed by retiring that host 2026-10-30** (unpublished, now `404`, `PHASE2-RECORDS.md` §12) |
 | `Cache-Control`, `ETag`, `Age` | ✅ caching headers (GitHub default) |
 | `Content-Security-Policy` | ❌ **absent** |
 | `X-Content-Type-Options` | ❌ **absent** (MIME sniffing not prevented) |
@@ -242,7 +242,7 @@ URL**, not localhost.
 | Interactivity under the live policy | theme toggle (dark → light, `localStorage` updated), site assistant opens with its input, SPA navigation `/` → `/features/` — all working, 0 errors |
 | `node crawl.js https://irfanpdf.pages.dev` | **OVERALL: PASS** |
 | Env vars reached the build | canonical + `og:url` = `https://irfanpdf.pages.dev/`, sitemap 2,929 B with `pages.dev` locations, all three download links resolve to the `v1.7.0` release assets (no "not configured") |
-| `irfanpdf.github.io` (the "run both" decision) | still **200 / `Server: GitHub.com`**, still header-less — old links keep working; only the new URL carries the policy |
+| `irfanpdf.github.io` (the "run both" decision) | ~~still **200 / `Server: GitHub.com`**, still header-less — old links keep working; only the new URL carries the policy~~ → **`404` since 2026-10-30**: "run both" reversed, Pages unpublished and the deploy workflow disabled (`PHASE2-RECORDS.md` §12). Rollback: Settings → Pages → Publish site + re-enable the workflow |
 
 **Update, later the same day (2026-10-25, after commit `3f204c5` deployed):** the
 catch-all row above (345-char `unsafe-inline` tier) is now superseded — the catch-all
@@ -285,6 +285,9 @@ between builds, each is generated from its own bytes.
    set in §1. Anyone on the old URL gets no CSP. The `<meta>` fallback was deliberately
    **not** added (decision recorded in §2). Retiring the old URL is an SEO/link decision,
    not a security one, and remains yours.
+   **Update 2026-10-30: that decision was taken — the old URL was retired.** Pages
+   unpublished (now `404`, no headers to get wrong), deploy workflow disabled, rollback
+   documented in `PHASE2-RECORDS.md` §12. Only `pages.dev` serves visitors now.
 2. **`style-src-attr 'unsafe-inline'` is a real relaxation.** An attacker who already
    had an HTML-injection point could attach style attributes (CSS-basedUI redressing,
    and in narrow cases attribute-selector data exfiltration). It does **not** allow
@@ -412,7 +415,9 @@ the project settings, and the rollback, is in
    now holds `https://irfanpdf.pages.dev`, run #6 was re-run after the change, and both
    hosts were verified serving canonical + `og:url` + sitemap pointing at `pages.dev`
    (evidence table in the migration doc §2.4). What remains yours is the larger call in
-   §2.4 of that doc: whether `irfanpdf.github.io` should eventually retire entirely.
+   §2.4 of that doc: ~~whether `irfanpdf.github.io` should eventually retire entirely.~~
+   **Decided 2026-10-30: retired** — Pages unpublished, workflow disabled
+   (`PHASE2-RECORDS.md` §12).
 5. **Verification after cutover** (all run against the live URL, 2026-10-25 — §5.5):
    ```powershell
    node scripts/check-live-headers.mjs https://irfanpdf.pages.dev   # ended OVERALL: PASS
@@ -453,8 +458,9 @@ shipping a policy that would break the site.
 ---
 
 **Status:** source hardened · **policy LIVE at `https://irfanpdf.pages.dev`** (verified
-2026-10-25, §5.5) · legacy `irfanpdf.github.io` still header-less by the "run both"
-decision (§6.1) · no 100%-security claim implied (§6).
+2026-10-25, §5.5) · ~~legacy `irfanpdf.github.io` still header-less by the "run both"
+decision (§6.1)~~ → legacy `irfanpdf.github.io` **retired 2026-10-30** (unpublished,
+`404`; `PHASE2-RECORDS.md` §12) · no 100%-security claim implied (§6).
 
 ---
 

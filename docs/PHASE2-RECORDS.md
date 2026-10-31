@@ -18,7 +18,7 @@ added to the account. Every control in this record is on a free tier.
 
 | ID | Control | Status | One-line evidence |
 |----|---------|--------|-------------------|
-| H1 | Cloudflare account 2FA | **PASS** (email method) | Re-read from `/profile/access-management/authentication/two-factor` after a full reload: *"Email two-factor authentication is active"*, button reads `Disable` (§4.2). Weaker than TOTP — residual-risk note in §4.2 |
+| H1 | Cloudflare account 2FA | **PASS** (email + TOTP + backup codes) | Re-read from `/profile/access-management/authentication/two-factor` after a full reload: *"Email two-factor authentication is active"*, button reads `Disable` (§4.2). **Strengthened 2026-10-31:** TOTP enrolled (`Reconfigure`) + backup codes generated (`Regenerate`), verified by labels-only read + a working authenticator-app challenge at the next sign-in (§4.2) |
 | GH-2FA | GitHub account 2FA | **PASS** (TOTP + recovery codes + passkey; **owner-reported**, not API-verifiable) | Enabled 2026-10-29; owner read back Settings → Password and authentication showing `Disable two-factor authentication`, recovery codes saved, passkey added. The API cannot confirm it — `/user` returns no 2FA field and GraphQL rejects `viewer.twoFactorAuthentication` (§11.4) |
 | H2 | Branch protection on `main`, both repos | **PASS** | Read back from the API: PR required, 0 approvals, no force-push, no deletions, admin bypass retained |
 | H3 | Releases repo: signed installers | **OPEN** | Not part of this batch; unchanged from the Phase 1 finding |
@@ -210,9 +210,9 @@ Stated limitations (kept in the workflow file itself):
 | Members | 1 (sole Super admin) |
 | API tokens | none |
 | Audit log (last 7 days) | 0 events before this engagement |
-| 2FA | **Active — email method** since 2026-10-27 (H1, §4.2) |
+| 2FA | **Active — email + TOTP + backup codes** (email since 2026-10-27; TOTP + backup codes added 2026-10-31, H1/§4.2) |
 
-### 4.2 Cloudflare 2FA — H1 (enabled 2026-10-27, email method)
+### 4.2 Cloudflare 2FA — H1 (enabled 2026-10-27, email method; **strengthened 2026-10-31 to email + TOTP + backup codes**)
 
 Timeline, so the record matches the report honestly:
 
@@ -220,6 +220,8 @@ Timeline, so the record matches the report honestly:
   times; recorded as open High.
 - 2026-10-27 — owner chose **Enable 2FA now**, and of the three methods offered
   (security key / mobile app TOTP / email) selected **Email Authentication**.
+- 2026-10-31 — owner reversed the "email is enough" position and **added Mobile
+  App (TOTP) + generated backup codes** (see *2026-10-31 strengthening* below).
 
 What was done: My Profile → Authentication → Two-Factor Authentication →
 `Enable` on the *Email Authentication* row.
@@ -257,6 +259,50 @@ A second, independent read after another navigation returned the same two facts
   account 2FA **was** enabled afterwards (TOTP + recovery codes + passkey) —
   §11. This line is kept visible rather than deleted so the record shows what
   was true when it was written.
+
+**2026-10-31 strengthening — email + TOTP + backup codes (all free):**
+
+The two weaknesses above were closed the same way everything else in this
+engagement is closed: by measuring, not by asserting. The owner enrolled a
+**free authenticator app** (TOTP) and generated **backup codes**, both at ₹0.
+
+How it went, including the misfires:
+
+- One enrollment attempt was **abandoned by the owner after a screenshot of
+  the QR code was posted into this chat** — the assistant disclosed that the
+  image contained the TOTP secret, never scanned/decoded it, and recommended
+  discarding that QR. A **fresh QR** was then enrolled instead, so the secret
+  that appeared in the chat was never the one that ended up configured.
+- Verification used the **labels-only guarded page read** used elsewhere in
+  this record (section heading → adjacent control label, plus booleans for
+  "QR visible" / "code list visible") so no secret could surface in any tool
+  output. Measured state change on
+  `/profile/access-management/authentication/two-factor`:
+
+| Method | Before (2026-10-30) | After (2026-10-31, read back) |
+|---|---|---|
+| Mobile App Authentication (TOTP) | `Add` | **`Reconfigure`** → enrolled |
+| Backup codes | `Generate` | **`Regenerate`** → generated |
+| Email Authentication | `Disable` (active) | `Disable` (active, unchanged) |
+| Security Key Authentication | `Add` | `Add` (not configured — out of scope, costs money) |
+
+- **End-to-end proof, not just a UI state:** after a session restart forced a
+  fresh sign-in, the login step-up challenge presented was
+  *"Verify with your authenticator app"* (not the email fallback), and the
+  owner entered a working code from the app — **owner-confirmed**. That
+  proves the configured TOTP both exists and produces valid codes at login.
+- Backup codes were generated and are **owner-saved** (password manager /
+  paper — never read into this session; the assistant is structurally barred
+  from seeing them). One honest limit: *where* they are stored cannot be
+  verified from here, only the owner knows.
+- Residual notes kept honest: `Security Key Authentication` remains `Add`
+  (a hardware key costs money → excluded by the zero-cost rule), and anyone
+  holding the discarded QR from the chat screenshot could generate codes for
+  the *abandoned* enrollment only — that secret was never activated, which is
+  exactly why it was discarded and redone.
+
+Status after strengthening: **PASS — email + TOTP + backup codes.** H1's
+recorded weakness ("email-only, no backup codes") is closed. Cost: ₹0.
 
 The codes themselves are never read into any log, file or message by this
 assistant; only the owner sees them, in their own mailbox.
@@ -353,6 +399,7 @@ itself remains true — GitHub Pages still cannot serve custom headers.
 | 2026-10-26 | Restrict preview deployments | M5 closed |
 | 2026-10-26 | **Skip Cloudflare 2FA** | H1 stayed open High at that point |
 | 2026-10-27 | **Enable Cloudflare 2FA — email method** (owner reversed the skip, chose email over TOTP) | H1 closed as PASS with a recorded weakness note (§4.2) |
+| 2026-10-31 | **Strengthen Cloudflare 2FA — add TOTP + generate backup codes** (free authenticator app, owner reversed the "email is enough" position) | Measured: `Mobile App` `Add` → **`Reconfigure`**, `Backup codes` `Generate` → **`Regenerate`**; end-to-end proof via a working authenticator challenge at the next sign-in; H1's weakness note closed. Cost ₹0 (§4.2) |
 | 2026-10-27 | **Nothing may cost money — not ₹1** | all paid options marked NOT APPLICABLE; no purchase attempted |
 | 2026-10-27 | Create the incident alert | one notification live and verified |
 | 2026-10-27 | **Plan the history rewrite (safe part only)** — inventory + tool + rewrite of a throwaway clone; nothing destructive without a second approval | 25 commits, PII mapped to 4 files + 1 message; clone verified PII-free and byte-identical at `HEAD` |
@@ -380,10 +427,12 @@ Still undecided, each requiring its own explicit go-ahead:
   actually run a command or open Credential Manager; none of the three routes
   (PowerShell, `cmd`, GUI) was executable here (§10.4). Decide whether to attempt
   it from another session or leave it parked.
-- **strengthen 2FA** — add TOTP (free app) and/or generate + store backup codes;
+- ~~**strengthen 2FA** — add TOTP (free app) and/or generate + store backup codes;
   email-only was the owner's choice for now (§4.2). *This applies to the
   **Cloudflare** account; the **GitHub** account now has TOTP + codes + passkey
-  (§11).*
+  (§11).*~~ **Decided 2026-10-31: done for Cloudflare** — TOTP enrolled +
+  backup codes generated + a working authenticator challenge observed at login
+  (§4.2). The **GitHub** account already had TOTP + codes + passkey (§11).
 - **old objects on GitHub's side** — the pre-rewrite commits were still
   resolvable by SHA after the push (§8.6); either wait for GitHub's internal GC
   or ask Support to expire them (free).
@@ -409,7 +458,8 @@ node crawl.js https://irfanpdf.pages.dev
 # preview restriction (expect 302 to the Access login)
 curl -s -o NUL -w "%{http_code} -> %{redirect_url}" https://x.yourproject.pages.dev/
 
-# 2FA status (expect "Email two-factor authentication is active")
+# 2FA status (expect "Email two-factor authentication is active",
+#   Mobile App row -> "Reconfigure", Backup codes row -> "Regenerate")
 #   dash.cloudflare.com/profile/access-management/authentication/two-factor
 
 # backup workflow
@@ -815,8 +865,11 @@ this later mistakes it for an independent measurement.
 - With TOTP **and** a passkey **and** recovery codes there is no single point of
   failure, but losing the authenticator device *and* the codes together means GitHub
   Support cannot help — the account would be unrecoverable in that scenario.
-- The **Cloudflare** account still has email-only 2FA with no backup codes generated
-  (§4.2) — a separate account, separate follow-up, still free to fix.
+- ~~The **Cloudflare** account still has email-only 2FA with no backup codes generated
+  (§4.2) — a separate account, separate follow-up, still free to fix.~~
+  **Closed 2026-10-31:** Cloudflare now has email + TOTP + backup codes (§4.2),
+  so both accounts carry TOTP with codes stored and neither depends on a single
+  method.
 
 ---
 
